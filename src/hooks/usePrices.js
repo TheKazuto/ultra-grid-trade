@@ -66,7 +66,7 @@ export function usePrices() {
 
   useEffect(() => {
     fetchAll()
-    intervalRef.current = setInterval(fetchAll, 15000)
+    intervalRef.current = setInterval(fetchAll, 60000)
     return () => clearInterval(intervalRef.current)
   }, [])
 
