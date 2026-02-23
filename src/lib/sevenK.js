@@ -1,4 +1,4 @@
-import { getQuote, buildTx, Config } from '@7kprotocol/sdk-ts'
+import { getQuote, buildTx, Config, getTokenPrice, getTokenPrices } from '@7kprotocol/sdk-ts'
 import { SuiClient, getFullnodeUrl } from '@mysten/sui/client'
 
 let initialized = false
@@ -12,18 +12,12 @@ function init7K() {
 }
 
 // ============================================================
-// GET PRICE — calls our Vercel proxy instead of prices.7k.ag
-// directly (which is blocked by CORS in the browser)
+// GET PRICE (single token) — uses SDK directly, no proxy needed
 // ============================================================
 export async function get7KPrice(tokenContract) {
   try {
-    const res = await fetch(
-      `/proxy/7k-prices/price?coinType=${encodeURIComponent(tokenContract)}`
-    )
-    if (!res.ok) throw new Error(`status ${res.status}`)
-    const data = await res.json()
-    // Response shape: { price: "1.23" } or { [coinType]: { price: "1.23" } }
-    const price = data?.price ?? data?.[tokenContract]?.price
+    init7K()
+    const price = await getTokenPrice(tokenContract)
     return price != null ? parseFloat(price) : null
   } catch (err) {
     console.warn('[7K] get7KPrice failed:', err.message)
@@ -32,22 +26,25 @@ export async function get7KPrice(tokenContract) {
 }
 
 // ============================================================
-// GET MULTIPLE PRICES — calls proxy for each contract
+// GET PRICES (multiple tokens) — uses SDK getTokenPrices
+// Returns: { [coinType]: number }
 // ============================================================
 export async function get7KPrices(tokenContracts) {
   try {
-    const params = tokenContracts
-      .map((c) => `coinType=${encodeURIComponent(c)}`)
-      .join('&')
-    const res = await fetch(`/proxy/7k-prices/price?${params}`)
-    if (!res.ok) throw new Error(`status ${res.status}`)
-    const data = await res.json()
-
+    init7K()
+    const results = await getTokenPrices(tokenContracts)
+    // SDK returns array of { coinType, price } or object
     const out = {}
-    for (const contract of tokenContracts) {
-      // Try both shapes the API might return
-      const price = data?.[contract]?.price ?? data?.price
-      if (price != null) out[contract] = parseFloat(price)
+    if (Array.isArray(results)) {
+      for (const item of results) {
+        if (item?.coinType && item?.price != null) {
+          out[item.coinType] = parseFloat(item.price)
+        }
+      }
+    } else if (results && typeof results === 'object') {
+      for (const [coinType, price] of Object.entries(results)) {
+        if (price != null) out[coinType] = parseFloat(price)
+      }
     }
     return out
   } catch (err) {
@@ -57,7 +54,7 @@ export async function get7KPrices(tokenContracts) {
 }
 
 // ============================================================
-// GET QUOTE — uses the SDK (goes through 7K's quote endpoint)
+// GET QUOTE
 // ============================================================
 export async function get7KQuote({ tokenInContract, tokenOutContract, amountIn }) {
   init7K()
