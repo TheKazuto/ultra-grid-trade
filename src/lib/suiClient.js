@@ -2,13 +2,12 @@ import { SuiClient, getFullnodeUrl } from '@mysten/sui/client'
 import { NFT_PACKAGE_ID } from './constants.js'
 
 // ============================================================
-// NFT TYPE — exact type string from on-chain package
+// CONSTANTS
 // ============================================================
-const NFT_TYPE = `${NFT_PACKAGE_ID}::project_ultra::Nft`
-
-// Kiosk types on Sui mainnet (standard + originbyte)
-const KIOSK_TYPE    = '0x2::kiosk::Kiosk'
-const OB_KIOSK_TYPE = '0x95a441d389b07437d00dd07e0b6f05f513d7659b13fd7c5d3923c7d9d847199b::ob_kiosk::ObKiosk'
+const NFT_TYPE         = `${NFT_PACKAGE_ID}::project_ultra::Nft`
+const KIOSK_OWNER_CAP  = '0x2::kiosk::KioskOwnerCap'
+// Personal Kiosk wraps a KioskOwnerCap — also check for it
+const PERSONAL_KIOSK_CAP = '0x0cb4bcc0560340eb1a1b929cabe56b33fc6449820ec8c1980d69bb98b649b802::personal_kiosk::PersonalKioskCap'
 
 // ============================================================
 // RPC FALLBACK LIST
@@ -34,10 +33,6 @@ async function withFallback(fn) {
   throw lastErr
 }
 
-// ============================================================
-// HELPERS
-// ============================================================
-
 /** Returns true if the type string belongs to this NFT collection */
 function isCollectionNFT(typeStr = '') {
   return (
@@ -47,13 +42,59 @@ function isCollectionNFT(typeStr = '') {
 }
 
 // ============================================================
+// Paginate all owned objects matching a StructType filter
+// ============================================================
+async function getOwnedByType(owner, structType) {
+  const results = []
+  let cursor = null
+  let hasNext = true
+  while (hasNext) {
+    const page = await withFallback((c) =>
+      c.getOwnedObjects({
+        owner,
+        filter: { StructType: structType },
+        options: { showType: true, showContent: true },
+        cursor,
+        limit: 50,
+      })
+    )
+    results.push(...page.data)
+    hasNext = page.hasNextPage
+    cursor = page.nextCursor
+  }
+  return results
+}
+
+// ============================================================
+// Paginate all dynamic fields of a parent object
+// ============================================================
+async function getAllDynamicFields(parentId) {
+  const results = []
+  let cursor = null
+  let hasNext = true
+  while (hasNext) {
+    const page = await withFallback((c) =>
+      c.getDynamicFields({ parentId, cursor, limit: 50 })
+    )
+    results.push(...page.data)
+    hasNext = page.hasNextPage
+    cursor = page.nextCursor
+  }
+  return results
+}
+
+// ============================================================
 // CHECK NFT OWNERSHIP
-// Strategy (in order):
-//   1. StructType filter — fastest, direct wallet objects
-//   2. MoveModule filter — catches generic/wrapped types
-//   3. Kiosk scan — NFTs locked inside standard Kiosks
-//   4. OriginByte Kiosk scan — NFTs locked inside OB Kiosks
-//   5. Full wallet scan — last resort
+//
+// Strategy:
+//   1. Direct wallet — StructType filter (NFT not in kiosk)
+//   2. Direct wallet — MoveModule filter (fallback for #1)
+//   3. Kiosk scan:
+//      a. Find KioskOwnerCap(s) in wallet → get kiosk ID from
+//         cap.fields.for  (the shared Kiosk object ID)
+//      b. getDynamicFields on the shared Kiosk object
+//      c. Match fields whose objectType contains our package
+//   4. Full wallet scan — last resort
 // ============================================================
 export async function checkNFTOwnership(walletAddress) {
   console.log('[NFT] Checking wallet:', walletAddress)
@@ -71,19 +112,14 @@ export async function checkNFTOwnership(walletAddress) {
     )
     console.log('[NFT] StructType result:', byType.data.length)
     if (byType.data.length > 0) {
-      return { count: byType.data.length, nfts: byType.data, source: 'direct-type' }
+      return { count: byType.data.length, nfts: byType.data, source: 'direct' }
     }
 
     // ── 2. MoveModule filter ──────────────────────────────────
     const byModule = await withFallback((c) =>
       c.getOwnedObjects({
         owner: walletAddress,
-        filter: {
-          MoveModule: {
-            package: NFT_PACKAGE_ID,
-            module: 'project_ultra',
-          },
-        },
+        filter: { MoveModule: { package: NFT_PACKAGE_ID, module: 'project_ultra' } },
         options: { showType: true },
         limit: 50,
       })
@@ -93,23 +129,70 @@ export async function checkNFTOwnership(walletAddress) {
       return { count: byModule.data.length, nfts: byModule.data, source: 'move-module' }
     }
 
-    // ── 3. Standard Kiosk scan ────────────────────────────────
-    console.log('[NFT] Scanning standard Kiosks...')
-    const kioskResult = await scanKiosks(walletAddress, KIOSK_TYPE)
-    if (kioskResult.count > 0) {
-      console.log('[NFT] Found in kiosk:', kioskResult.count)
-      return { ...kioskResult, source: 'kiosk' }
+    // ── 3. Kiosk scan ────────────────────────────────────────
+    // The Kiosk itself is a SHARED object — it does NOT appear
+    // in getOwnedObjects. What appears is the KioskOwnerCap.
+    // The cap has a field "for" pointing to the kiosk ID.
+    console.log('[NFT] Scanning KioskOwnerCap(s)...')
+
+    const caps = await getOwnedByType(walletAddress, KIOSK_OWNER_CAP)
+    console.log('[NFT] KioskOwnerCap found:', caps.length)
+
+    // Also check PersonalKioskCap (wraps a KioskOwnerCap)
+    let personalCaps = []
+    try {
+      personalCaps = await getOwnedByType(walletAddress, PERSONAL_KIOSK_CAP)
+      console.log('[NFT] PersonalKioskCap found:', personalCaps.length)
+    } catch (_) {}
+
+    // Extract kiosk IDs from caps
+    const kioskIds = new Set()
+
+    for (const cap of caps) {
+      // KioskOwnerCap.fields.for is the kiosk object ID
+      const kioskId = cap.data?.content?.fields?.for
+      if (kioskId) kioskIds.add(kioskId)
+      // Sometimes the field is exposed directly as objectId of the kiosk
+      // via showContent — also grab from type if available
     }
 
-    // ── 4. OriginByte Kiosk scan ──────────────────────────────
-    console.log('[NFT] Scanning OB Kiosks...')
-    const obResult = await scanKiosks(walletAddress, OB_KIOSK_TYPE)
-    if (obResult.count > 0) {
-      console.log('[NFT] Found in OB kiosk:', obResult.count)
-      return { ...obResult, source: 'ob-kiosk' }
+    for (const pcap of personalCaps) {
+      // PersonalKioskCap wraps a KioskOwnerCap
+      const inner = pcap.data?.content?.fields?.cap
+      const kioskId = inner?.fields?.for || inner?.for
+      if (kioskId) kioskIds.add(kioskId)
     }
 
-    // ── 5. Full wallet scan (last resort) ─────────────────────
+    console.log('[NFT] Kiosk IDs to scan:', [...kioskIds])
+
+    let kioskNfts = []
+
+    for (const kioskId of kioskIds) {
+      console.log(`[NFT] Scanning kiosk ${kioskId}...`)
+      const fields = await getAllDynamicFields(kioskId)
+      console.log(`[NFT] Kiosk ${kioskId}: ${fields.length} dynamic field(s)`)
+
+      // Log all field types for debugging
+      if (fields.length > 0) {
+        const types = [...new Set(fields.map(f => f.objectType || 'unknown'))]
+        console.log('[NFT] Field objectTypes:', types)
+      }
+
+      const matching = fields.filter((f) => {
+        const objType = f.objectType || ''
+        // objectType for a kiosk item is the full type of the stored object
+        return isCollectionNFT(objType)
+      })
+
+      console.log(`[NFT] Kiosk ${kioskId}: ${matching.length} NFT(s) matched`)
+      kioskNfts = [...kioskNfts, ...matching]
+    }
+
+    if (kioskNfts.length > 0) {
+      return { count: kioskNfts.length, nfts: kioskNfts, source: 'kiosk' }
+    }
+
+    // ── 4. Full wallet scan (last resort) ─────────────────────
     console.log('[NFT] Full wallet scan...')
     let all = [], cursor = null, hasNext = true
 
@@ -128,65 +211,12 @@ export async function checkNFTOwnership(walletAddress) {
     }
 
     const nfts = all.filter((o) => isCollectionNFT(o.data?.type || ''))
-    console.log(`[NFT] Full scan: ${all.length} objects checked, ${nfts.length} matched`)
+    console.log(`[NFT] Full scan: ${all.length} objects, ${nfts.length} matched`)
     return { count: nfts.length, nfts, source: 'full-scan' }
 
   } catch (err) {
     console.error('[NFT] Error:', err)
     return { count: 0, nfts: [], error: err.message }
-  }
-}
-
-// ============================================================
-// KIOSK SCANNER
-// Finds all Kiosks owned by the wallet, then checks their
-// dynamic fields for NFTs from our collection.
-// ============================================================
-async function scanKiosks(walletAddress, kioskType) {
-  try {
-    const kioskObjs = await withFallback((c) =>
-      c.getOwnedObjects({
-        owner: walletAddress,
-        filter: { StructType: kioskType },
-        options: { showType: true },
-        limit: 50,
-      })
-    )
-
-    if (kioskObjs.data.length === 0) return { count: 0, nfts: [] }
-
-    console.log(`[NFT] Found ${kioskObjs.data.length} kiosk(s) of type ${kioskType}`)
-
-    let allNfts = []
-
-    for (const kioskObj of kioskObjs.data) {
-      const kioskId = kioskObj.data?.objectId
-      if (!kioskId) continue
-
-      let fields = [], cursor = null, hasNext = true
-      while (hasNext) {
-        const page = await withFallback((c) =>
-          c.getDynamicFields({ parentId: kioskId, cursor, limit: 50 })
-        )
-        fields = [...fields, ...page.data]
-        hasNext = page.hasNextPage
-        cursor = page.nextCursor
-      }
-
-      console.log(`[NFT] Kiosk ${kioskId}: ${fields.length} dynamic field(s)`)
-
-      const matching = fields.filter((f) => {
-        const t = f.objectType || f.name?.type || ''
-        return isCollectionNFT(t)
-      })
-
-      allNfts = [...allNfts, ...matching]
-    }
-
-    return { count: allNfts.length, nfts: allNfts }
-  } catch (err) {
-    console.warn('[NFT] Kiosk scan error:', err.message)
-    return { count: 0, nfts: [] }
   }
 }
 
