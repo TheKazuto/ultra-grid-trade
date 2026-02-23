@@ -21,10 +21,13 @@ export const TOKENS = {
   DEEP: {
     symbol: 'DEEP',
     name: 'DeepBook',
+    // Confirmed via DeepBookV3 indexer & on-chain data
     contract: '0xdeeb7a4662eec9f2f3def03fb937a663dddaa2e215b8078a284d026b7946c270::deep::DEEP',
     decimals: 6,
     color: '#1DB954',
     initial: 'D',
+    // CoinGecko ID — correct slug for DEEP token
+    cgId: 'deep-book',
   },
   IKA: {
     symbol: 'IKA',
@@ -33,8 +36,13 @@ export const TOKENS = {
     decimals: 9,
     color: '#9B59B6',
     initial: 'I',
+    cgId: 'ika',
   },
 }
+
+// Add cgId to all tokens for CoinGecko fallback
+TOKENS.SUI.cgId  = 'sui'
+TOKENS.WAL.cgId  = 'walrus-2'
 
 export const USDC = {
   symbol: 'USDC',

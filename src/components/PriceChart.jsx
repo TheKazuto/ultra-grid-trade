@@ -2,13 +2,16 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'rec
 import { TOKENS } from '../lib/constants.js'
 import { Card, Tag } from './UI.jsx'
 
+// history prop: flat array of price numbers e.g. [1.23, 1.25, ...]
+// Parent (DashboardPage) already passes priceHistory[selectedToken] — DO NOT re-index
 export function PriceChart({ token, history, currentPrice }) {
   const tokenInfo = token ? TOKENS[token] : null
   const color = tokenInfo?.color || '#6c63ff'
 
-  const data = (history[token] || []).map((price, i) => ({
+  const safeHistory = Array.isArray(history) ? history : []
+  const data = safeHistory.map((price, i) => ({
     i,
-    price: parseFloat(price.toFixed(6)),
+    price: parseFloat(Number(price).toFixed(6)),
   }))
 
   return (

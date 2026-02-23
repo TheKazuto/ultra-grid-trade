@@ -4,23 +4,31 @@ import { get7KPrices } from '../lib/sevenK.js'
 import { getAftermathPrices } from '../lib/aftermath.js'
 
 // ============================================================
-// COINGECKO FALLBACK IDs
+// COINGECKO FALLBACK — uses cgId field from TOKENS
 // ============================================================
-const COINGECKO_IDS = {
-  SUI:  'sui',
-  WAL:  'walrus-2',
-  DEEP: 'deepbook',
-  IKA:  'ika',
-}
+async function fetchFromCoinGecko(tokenMap) {
+  const idToSym = {}
+  const ids = []
+  for (const [sym, token] of Object.entries(tokenMap)) {
+    if (token.cgId) {
+      idToSym[token.cgId] = sym
+      ids.push(token.cgId)
+    }
+  }
+  if (ids.length === 0) return {}
 
-async function fetchFromCoinGecko(symbols) {
-  const ids = symbols.map((s) => COINGECKO_IDS[s]).filter(Boolean).join(',')
   const res = await fetch(
-    `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`,
-    { headers: { 'Accept': 'application/json' } }
+    `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd`,
+    { headers: { Accept: 'application/json' } }
   )
   if (!res.ok) throw new Error(`CoinGecko ${res.status}`)
-  return res.json()
+  const data = await res.json()
+
+  const result = {}
+  for (const [cgId, sym] of Object.entries(idToSym)) {
+    if (data[cgId]?.usd) result[sym] = parseFloat(data[cgId].usd)
+  }
+  return result
 }
 
 // ============================================================
@@ -38,7 +46,7 @@ export function usePrices() {
   const fetchAll = async () => {
     const newPrices = {}
 
-    // ── Try 7K SDK first (no CORS — uses SDK internals) ──────
+    // ── Try 7K SDK first (no CORS) ────────────────────────────
     try {
       const contracts = Object.values(TOKENS).map((t) => t.contract)
       const data = await get7KPrices(contracts)
@@ -49,7 +57,7 @@ export function usePrices() {
       }
 
       if (Object.keys(newPrices).length > 0) {
-        console.log('[Prices] Loaded from 7K SDK:', newPrices)
+        console.log('[Prices] 7K SDK:', newPrices)
         applyPrices(newPrices)
         return
       }
@@ -57,7 +65,7 @@ export function usePrices() {
       console.warn('[Prices] 7K SDK failed:', err.message)
     }
 
-    // ── Fallback: Aftermath Prices SDK ───────────────────────
+    // ── Fallback: Aftermath Prices SDK ────────────────────────
     try {
       const contracts = Object.values(TOKENS).map((t) => t.contract)
       const data = await getAftermathPrices(contracts)
@@ -68,7 +76,7 @@ export function usePrices() {
       }
 
       if (Object.keys(newPrices).length > 0) {
-        console.log('[Prices] Loaded from Aftermath:', newPrices)
+        console.log('[Prices] Aftermath:', newPrices)
         applyPrices(newPrices)
         return
       }
@@ -76,26 +84,19 @@ export function usePrices() {
       console.warn('[Prices] Aftermath failed:', err.message)
     }
 
-    // ── Final fallback: CoinGecko (public API) ───────────────
+    // ── Final fallback: CoinGecko ─────────────────────────────
     try {
-      const syms = Object.keys(TOKENS)
-      const data = await fetchFromCoinGecko(syms)
-
-      for (const [sym, cgId] of Object.entries(COINGECKO_IDS)) {
-        const price = data[cgId]?.usd
-        if (price) newPrices[sym] = parseFloat(price)
-      }
-
-      if (Object.keys(newPrices).length > 0) {
-        console.log('[Prices] Loaded from CoinGecko:', newPrices)
-        applyPrices(newPrices)
+      const cgPrices = await fetchFromCoinGecko(TOKENS)
+      if (Object.keys(cgPrices).length > 0) {
+        console.log('[Prices] CoinGecko:', cgPrices)
+        applyPrices(cgPrices)
         return
       }
     } catch (err) {
       console.warn('[Prices] CoinGecko failed:', err.message)
     }
 
-    console.warn('[Prices] All price sources failed')
+    console.warn('[Prices] All sources failed')
   }
 
   function applyPrices(newPrices) {

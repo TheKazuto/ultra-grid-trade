@@ -2,7 +2,7 @@ import { SuiClient } from '@mysten/sui/client'
 import { NFT_PACKAGE_ID } from './constants.js'
 
 // ============================================================
-// SUI CLIENT - multiple public RPCs with automatic fallback
+// SUI CLIENT - public RPCs with automatic fallback
 // ============================================================
 const RPC_URLS = [
   'https://fullnode.mainnet.sui.io',
@@ -27,11 +27,12 @@ async function withFallback(fn) {
 }
 
 // ============================================================
-// CHECK NFT OWNERSHIP - 2 strategies
+// CHECK NFT OWNERSHIP
+// 3 strategies in order of speed
 // ============================================================
 export async function checkNFTOwnership(walletAddress) {
   try {
-    // Strategy 1: Package filter (fast)
+    // Strategy 1: Package filter
     const byPackage = await withFallback((client) =>
       client.getOwnedObjects({
         owner: walletAddress,
@@ -46,8 +47,32 @@ export async function checkNFTOwnership(walletAddress) {
       return { count: byPackage.data.length, nfts: byPackage.data }
     }
 
-    // Strategy 2: Scan all objects, match type prefix
-    console.log('[NFT] Package filter = 0, doing full scan...')
+    // Strategy 2: MoveModule filter — tries common module names
+    const moduleNames = ['nft', 'ultra_grid_nft', 'grid_nft', 'pass', 'access', 'token']
+    for (const moduleName of moduleNames) {
+      try {
+        const byModule = await withFallback((client) =>
+          client.getOwnedObjects({
+            owner: walletAddress,
+            filter: {
+              MoveModule: {
+                package: NFT_PACKAGE_ID,
+                module: moduleName,
+              },
+            },
+            options: { showType: true },
+            limit: 50,
+          })
+        )
+        if (byModule.data.length > 0) {
+          console.log(`[NFT] Found ${byModule.data.length} via MoveModule (${moduleName})`)
+          return { count: byModule.data.length, nfts: byModule.data }
+        }
+      } catch {}
+    }
+
+    // Strategy 3: Full scan with type prefix match
+    console.log('[NFT] Filters returned 0, falling back to full scan...')
     let allObjects = []
     let cursor = null
     let hasNextPage = true
@@ -72,7 +97,7 @@ export async function checkNFTOwnership(walletAddress) {
       return type.startsWith(NFT_PACKAGE_ID)
     })
 
-    console.log(`[NFT] Found ${nfts.length} via full scan`)
+    console.log(`[NFT] Full scan found ${nfts.length} objects matching package ID`)
     return { count: nfts.length, nfts }
 
   } catch (err) {
