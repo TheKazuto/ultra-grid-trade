@@ -4,7 +4,6 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   define: {
-    // Required for some blockchain SDKs that use Node.js globals
     global: 'globalThis',
     'process.env': {},
   },
@@ -14,31 +13,34 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    // Force Vite to pre-bundle these dependencies correctly
     include: [
       '@mysten/sui',
       '@mysten/dapp-kit',
       'aftermath-ts-sdk',
       '@7kprotocol/sdk-ts',
     ],
+    esbuildOptions: {
+      target: 'esnext',
+    },
   },
   build: {
-    // Increase chunk size limit warning threshold
     chunkSizeWarningLimit: 2000,
+    commonjsOptions: {
+      include: [/@mysten\/sui/, /@mysten\/dapp-kit/, /node_modules/],
+      transformMixedEsModules: true,
+    },
     rollupOptions: {
       output: {
-        // Split large vendor libraries into separate chunks for faster loading
         manualChunks: {
-          'sui-sdk':      ['@mysten/sui', '@mysten/dapp-kit'],
-          'aftermath-sdk': ['aftermath-ts-sdk'],
+          'sui-sdk':        ['@mysten/sui', '@mysten/dapp-kit'],
+          'aftermath-sdk':  ['aftermath-ts-sdk'],
           'sevenkprotocol': ['@7kprotocol/sdk-ts'],
-          'charts':       ['recharts'],
+          'charts':         ['recharts'],
         },
       },
     },
   },
   server: {
-    // Local dev proxy to avoid CORS issues when testing
     proxy: {
       '/api/7k': {
         target: 'https://api.7k.ag',
