@@ -1,12 +1,11 @@
 import { useCurrentAccount } from '@mysten/dapp-kit'
 import { ConnectButton } from '@mysten/dapp-kit'
 import { Card, Tag, Spinner } from '../components/UI.jsx'
-import { useNFT } from '../hooks/useNFT.js'
 import { TOKENS, USDC, NFT_PACKAGE_ID } from '../lib/constants.js'
 
-export function AccountPage() {
+export function AccountPage({ nft }) {
   const account = useCurrentAccount()
-  const { nftCount, tier, balances, loading, debugInfo } = useNFT()
+  const { nftCount, tier, balances, loading, debugInfo } = nft
 
   if (!account) {
     return (

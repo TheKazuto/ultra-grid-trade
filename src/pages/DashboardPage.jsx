@@ -6,11 +6,10 @@ import { PriceChart } from '../components/PriceChart.jsx'
 import { GridVisual } from '../components/GridVisual.jsx'
 import { TradeHistory } from '../components/TradeHistory.jsx'
 import { useGridBot } from '../hooks/useGridBot.js'
-import { useNFT } from '../hooks/useNFT.js'
 
-export function DashboardPage({ prices, priceHistory }) {
+export function DashboardPage({ prices, priceHistory, nft }) {
   const account = useCurrentAccount()
-  const { tier, balances } = useNFT()
+  const { tier, balances } = nft
   const [selectedToken, setSelectedToken] = useState(null)
 
   const {

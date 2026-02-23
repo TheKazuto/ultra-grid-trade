@@ -6,11 +6,13 @@ import { HomePage } from './pages/HomePage.jsx'
 import { DashboardPage } from './pages/DashboardPage.jsx'
 import { AccountPage } from './pages/AccountPage.jsx'
 import { usePrices } from './hooks/usePrices.js'
+import { useNFT } from './hooks/useNFT.js'
 
 export default function App() {
   const [page, setPage] = useState('home')
   const [toast, setToast] = useState({ msg: '', visible: false })
   const { prices, history: priceHistory } = usePrices()
+  const nft = useNFT()  // verificação única — compartilhada entre todas as páginas
 
   // Global toast helper
   window.showToast = (msg) => {
@@ -28,9 +30,9 @@ export default function App() {
         maxWidth: 1200,
         margin: '0 auto',
       }}>
-        {page === 'home' && <HomePage setPage={setPage} />}
-        {page === 'dashboard' && <DashboardPage prices={prices} priceHistory={priceHistory} />}
-        {page === 'account' && <AccountPage />}
+        {page === 'home' && <HomePage setPage={setPage} nft={nft} />}
+        {page === 'dashboard' && <DashboardPage prices={prices} priceHistory={priceHistory} nft={nft} />}
+        {page === 'account' && <AccountPage nft={nft} />}
       </main>
 
       <BottomBar prices={prices} running={false} />

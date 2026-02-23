@@ -1,11 +1,10 @@
 import { useCurrentAccount } from '@mysten/dapp-kit'
 import { ConnectButton } from '@mysten/dapp-kit'
 import { Card, Tag } from '../components/UI.jsx'
-import { useNFT } from '../hooks/useNFT.js'
 
-export function HomePage({ setPage }) {
+export function HomePage({ setPage, nft }) {
   const account = useCurrentAccount()
-  const { nftCount, tier, loading } = useNFT()
+  const { nftCount, tier, loading } = nft
 
   return (
     <div style={{ paddingBottom: 60 }}>
