@@ -1,4 +1,4 @@
-import { getQuote, buildTx, Config, getTokenPrice, getTokenPrices } from '@7kprotocol/sdk-ts'
+import { getQuote, buildTx, Config } from '@7kprotocol/sdk-ts'
 import { SuiClient, getFullnodeUrl } from '@mysten/sui/client'
 
 let initialized = false
@@ -12,45 +12,31 @@ function init7K() {
 }
 
 // ============================================================
-// GET PRICE (single token) — uses SDK directly, no proxy needed
-// ============================================================
-export async function get7KPrice(tokenContract) {
-  try {
-    init7K()
-    const price = await getTokenPrice(tokenContract)
-    return price != null ? parseFloat(price) : null
-  } catch (err) {
-    console.warn('[7K] get7KPrice failed:', err.message)
-    return null
-  }
-}
-
-// ============================================================
-// GET PRICES (multiple tokens) — uses SDK getTokenPrices
-// Returns: { [coinType]: number }
+// GET PRICES — chama /api/prices (Vercel serverless proxy)
+// evitando o bloqueio de CORS do browser em prices.7k.ag
+// Retorna: { [coinType]: number }
 // ============================================================
 export async function get7KPrices(tokenContracts) {
-  try {
-    init7K()
-    const results = await getTokenPrices(tokenContracts)
-    // SDK returns array of { coinType, price } or object
-    const out = {}
-    if (Array.isArray(results)) {
-      for (const item of results) {
-        if (item?.coinType && item?.price != null) {
-          out[item.coinType] = parseFloat(item.price)
-        }
-      }
-    } else if (results && typeof results === 'object') {
-      for (const [coinType, price] of Object.entries(results)) {
-        if (price != null) out[coinType] = parseFloat(price)
-      }
-    }
-    return out
-  } catch (err) {
-    console.warn('[7K] get7KPrices failed:', err.message)
-    return {}
+  const params = tokenContracts
+    .map((c) => `coinType=${encodeURIComponent(c)}`)
+    .join('&')
+
+  const res = await fetch(`/api/prices?${params}`, {
+    signal: AbortSignal.timeout(8000),
+  })
+
+  if (!res.ok) throw new Error(`prices proxy ${res.status}`)
+
+  const data = await res.json()
+  const out = {}
+
+  for (const contract of tokenContracts) {
+    // A API do 7K retorna { [coinType]: { price: "1.23" } }
+    const priceRaw = data?.[contract]?.price ?? data?.[contract]
+    if (priceRaw != null) out[contract] = parseFloat(priceRaw)
   }
+
+  return out
 }
 
 // ============================================================

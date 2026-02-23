@@ -53,6 +53,13 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      // Em dev local, /api/prices vai direto para prices.7k.ag
+      // Em produção na Vercel, é tratado pela function /api/prices.js
+      '/api/prices': {
+        target: 'https://prices.7k.ag',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/prices/, '/price'),
+      },
       '/api/7k': {
         target: 'https://api.7k.ag',
         changeOrigin: true,
