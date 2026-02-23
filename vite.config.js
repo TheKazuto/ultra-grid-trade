@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import path from 'path'
 
 export default defineConfig({
   plugins: [react()],
@@ -9,16 +8,11 @@ export default defineConfig({
     'process.env': {},
   },
   resolve: {
-    alias: [
-      { find: '@', replacement: '/src' },
-      {
-        find: /^@mysten\/sui(\/(.*))?$/,
-        replacement: (_, sub) =>
-          sub
-            ? path.resolve('node_modules/@mysten/sui/dist/cjs/' + sub + '.js')
-            : path.resolve('node_modules/@mysten/sui/dist/cjs/index.js'),
-      },
-    ],
+    alias: {
+      '@': '/src',
+    },
+    conditions: ['module', 'import', 'default'],
+    mainFields: ['module', 'main'],
   },
   optimizeDeps: {
     include: [
