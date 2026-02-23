@@ -1,6 +1,9 @@
 import { SuiClient, getFullnodeUrl } from '@mysten/sui/client'
 import { NFT_PACKAGE_ID } from './constants.js'
 
+// Exact type string from SuiScan collection URL
+const NFT_TYPE = `${NFT_PACKAGE_ID}::project_ultra::Nft`
+
 const RPC_URLS = [
   getFullnodeUrl('mainnet'),
   'https://sui-mainnet.public.blastapi.io',
@@ -24,23 +27,57 @@ async function withFallback(fn) {
 
 // ============================================================
 // CHECK NFT OWNERSHIP
-// The Package filter on Sui only works for objects whose type
-// is directly under that package root. Many NFT collections
-// use nested modules (e.g. package::collection::NFT).
-// So we do a full wallet scan and match by package prefix —
-// this is the most reliable method.
+// Uses StructType filter with the exact type from SuiScan:
+// 0x29b63e...::project_ultra::Nft
+// This is the most reliable and fastest method.
 // ============================================================
 export async function checkNFTOwnership(walletAddress) {
-  console.log('[NFT] Scanning wallet:', walletAddress)
-  console.log('[NFT] Looking for package:', NFT_PACKAGE_ID)
+  console.log('[NFT] Checking wallet:', walletAddress)
+  console.log('[NFT] NFT type:', NFT_TYPE)
 
   try {
-    // Full wallet scan — paginate through ALL owned objects
-    let allObjects = []
-    let cursor = null
-    let hasNextPage = true
+    // Primary: StructType filter — exact match on the NFT type
+    const byType = await withFallback((c) =>
+      c.getOwnedObjects({
+        owner: walletAddress,
+        filter: { StructType: NFT_TYPE },
+        options: { showType: true },
+        limit: 50,
+      })
+    )
 
-    while (hasNextPage) {
+    console.log('[NFT] StructType filter result:', byType.data.length)
+
+    if (byType.data.length > 0) {
+      return { count: byType.data.length, nfts: byType.data }
+    }
+
+    // Fallback: MoveModule filter with known module name
+    const byModule = await withFallback((c) =>
+      c.getOwnedObjects({
+        owner: walletAddress,
+        filter: {
+          MoveModule: {
+            package: NFT_PACKAGE_ID,
+            module: 'project_ultra',
+          },
+        },
+        options: { showType: true },
+        limit: 50,
+      })
+    )
+
+    console.log('[NFT] MoveModule filter result:', byModule.data.length)
+
+    if (byModule.data.length > 0) {
+      return { count: byModule.data.length, nfts: byModule.data }
+    }
+
+    // Last resort: full scan
+    console.log('[NFT] Falling back to full wallet scan...')
+    let all = [], cursor = null, hasNext = true
+
+    while (hasNext && all.length < 2000) {
       const page = await withFallback((c) =>
         c.getOwnedObjects({
           owner: walletAddress,
@@ -49,37 +86,21 @@ export async function checkNFTOwnership(walletAddress) {
           limit: 50,
         })
       )
-      allObjects = [...allObjects, ...page.data]
-      hasNextPage = page.hasNextPage
+      all = [...all, ...page.data]
+      hasNext = page.hasNextPage
       cursor = page.nextCursor
-
-      // Safety cap at 2000 objects
-      if (allObjects.length >= 2000) break
     }
 
-    console.log('[NFT] Total objects in wallet:', allObjects.length)
-
-    // Log every object type so we can debug from the console
-    const types = allObjects
-      .map((o) => o.data?.type)
-      .filter(Boolean)
-
-    console.log('[NFT] All object types:')
-    types.forEach((t) => console.log('  -', t))
-
-    // Match anything whose type starts with our package ID
-    const nfts = allObjects.filter((o) => {
-      const type = o.data?.type || ''
-      return type.startsWith(NFT_PACKAGE_ID)
+    const nfts = all.filter((o) => {
+      const t = o.data?.type || ''
+      return t === NFT_TYPE || t.startsWith(NFT_PACKAGE_ID)
     })
 
-    console.log(`[NFT] Found ${nfts.length} NFT(s) matching package`)
-    nfts.forEach((n) => console.log('  ✓', n.data?.type, n.data?.objectId))
-
+    console.log(`[NFT] Full scan: ${all.length} total, ${nfts.length} matched`)
     return { count: nfts.length, nfts }
 
   } catch (err) {
-    console.error('[NFT] Error during scan:', err)
+    console.error('[NFT] Error:', err)
     return { count: 0, nfts: [], error: err.message }
   }
 }
