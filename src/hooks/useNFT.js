@@ -40,15 +40,29 @@ export function useNFT() {
         setTier(getTier(count))
         setDebugInfo(`Found ${count} NFT(s)`)
 
+        // Normaliza coin type: expande endereços curtos da Sui
+        // ex: "0x2::sui::SUI" → "0x0000...0002::sui::SUI"
+        const normalizeCoinType = (ct) => {
+          const parts = ct.split('::')
+          if (parts.length !== 3) return ct.toLowerCase()
+          const addr = parts[0].toLowerCase().replace('0x', '')
+          const padded = '0x' + addr.padStart(64, '0')
+          return `${padded}::${parts[1]}::${parts[2]}`
+        }
+
         // Map raw balances to human-readable
         const parsed = {}
+        console.log('[useNFT] Raw coinTypes from chain:', Object.keys(rawBalances))
         for (const [coinType, raw] of Object.entries(rawBalances)) {
+          const normChain = normalizeCoinType(coinType)
           for (const [sym, token] of Object.entries(TOKENS)) {
-            if (coinType === token.contract) {
+            const normToken = normalizeCoinType(token.contract)
+            if (normChain === normToken) {
               parsed[sym] = fromBaseUnits(raw, token.decimals)
             }
           }
-          if (coinType === USDC.contract) {
+          const normUsdc = normalizeCoinType(USDC.contract)
+          if (normChain === normUsdc) {
             parsed['USDC'] = fromBaseUnits(raw, USDC.decimals)
           }
         }
