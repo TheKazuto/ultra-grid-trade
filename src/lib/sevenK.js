@@ -1,11 +1,11 @@
 import { getQuote, buildTx, Config } from '@7kprotocol/sdk-ts'
-import { SuiClient, getFullnodeUrl } from '@mysten/sui/client'
+import { SuiClient } from '@mysten/sui/client'
 
 let initialized = false
 
 function init7K() {
   if (!initialized) {
-    const suiClient = new SuiClient({ url: getFullnodeUrl('mainnet') })
+    const suiClient = new SuiClient({ url: 'https://mainnet.suiet.app' })
     Config.setSuiClient(suiClient)
     initialized = true
   }

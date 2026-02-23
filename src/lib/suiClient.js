@@ -1,4 +1,4 @@
-import { SuiClient, getFullnodeUrl } from '@mysten/sui/client'
+import { SuiClient } from '@mysten/sui/client'
 import { NFT_PACKAGE_ID } from './constants.js'
 
 // ============================================================
@@ -12,10 +12,12 @@ const PERSONAL_KIOSK_CAP = '0x0cb4bcc0560340eb1a1b929cabe56b33fc6449820ec8c1980d
 // ============================================================
 // RPC FALLBACK LIST
 // ============================================================
+// RPCs com CORS ok para browser (fullnode.mainnet.sui.io NÃO tem CORS)
 const RPC_URLS = [
-  getFullnodeUrl('mainnet'),
+  'https://mainnet.suiet.app',
+  'https://sui-rpc.publicnode.com',
   'https://sui-mainnet.public.blastapi.io',
-  'https://sui-mainnet-rpc.allthatnode.com',
+  'https://rpc-mainnet.suiscan.xyz',
 ]
 
 export const suiClient = new SuiClient({ url: RPC_URLS[0] })
