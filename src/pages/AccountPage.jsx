@@ -60,7 +60,7 @@ export function AccountPage({ nft }) {
           <>
             <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 10 }}>
               {nftCount > 0
-                ? `✅ ${nftCount} Ultra Grid Trade NFT${nftCount !== 1 ? 's' : ''} found`
+                ? `✅ ${nftCount} Ultra NFT${nftCount !== 1 ? 's' : ''} found`
                 : '❌ No NFTs found in this wallet'}
             </div>
 
