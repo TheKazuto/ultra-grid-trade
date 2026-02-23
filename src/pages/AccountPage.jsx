@@ -1,12 +1,12 @@
 import { useCurrentAccount } from '@mysten/dapp-kit'
 import { ConnectButton } from '@mysten/dapp-kit'
-import { Card, Tag } from '../components/UI.jsx'
+import { Card, Tag, Spinner } from '../components/UI.jsx'
 import { useNFT } from '../hooks/useNFT.js'
 import { TOKENS, USDC, NFT_PACKAGE_ID } from '../lib/constants.js'
 
 export function AccountPage() {
   const account = useCurrentAccount()
-  const { nftCount, tier, balances, loading } = useNFT()
+  const { nftCount, tier, balances, loading, debugInfo } = useNFT()
 
   if (!account) {
     return (
@@ -25,12 +25,12 @@ export function AccountPage() {
         Account
       </h1>
 
-      {/* Wallet card */}
+      {/* Wallet */}
       <Card style={{ padding: '22px 24px', marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <div style={labelStyle}>Wallet Address</div>
-            <div style={{ fontSize: 13, fontFamily: 'monospace', fontWeight: 500, marginTop: 6, wordBreak: 'break-all' }}>
+            <div style={{ fontSize: 12.5, fontFamily: 'monospace', fontWeight: 500, marginTop: 6, wordBreak: 'break-all', color: '#1a1d2e' }}>
               {account.address}
             </div>
           </div>
@@ -48,61 +48,81 @@ export function AccountPage() {
 
       {/* NFT Holdings */}
       <Card style={{ padding: '22px 24px', marginBottom: 16 }}>
-        <div style={labelStyle}>NFT Holdings</div>
-        <div style={{ marginTop: 12 }}>
-          {loading ? (
-            <p style={{ fontSize: 14, color: '#9298b5' }}>Checking…</p>
-          ) : (
-            <>
-              <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>
-                {nftCount} Ultra Grid Trade NFT{nftCount !== 1 ? 's' : ''} found
-              </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <Tag variant={tier.allowed ? 'accent' : 'red'}>{tier.label}</Tag>
-                <Tag variant={tier.maxPairs >= 2 ? 'blue' : 'gray'}>
-                  Max {tier.maxPairs} pair{tier.maxPairs !== 1 ? 's' : ''}
-                </Tag>
-              </div>
-              <div style={{ marginTop: 12, fontSize: 12.5, color: '#9298b5' }}>
-                Collection Package ID:
-                <br />
-                <span style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{NFT_PACKAGE_ID}</span>
-              </div>
-            </>
-          )}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div style={labelStyle}>NFT Holdings</div>
+          {loading && <Spinner size={16} />}
         </div>
+
+        {loading ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#9298b5', fontSize: 14 }}>
+            <Spinner size={16} /> Scanning wallet for NFTs…
+          </div>
+        ) : (
+          <>
+            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 10 }}>
+              {nftCount > 0
+                ? `✅ ${nftCount} Ultra Grid Trade NFT${nftCount !== 1 ? 's' : ''} found`
+                : '❌ No NFTs found in this wallet'}
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+              <Tag variant={tier.allowed ? 'accent' : 'red'}>{tier.label}</Tag>
+              <Tag variant={tier.maxPairs >= 2 ? 'blue' : 'gray'}>
+                {tier.maxPairs} pair{tier.maxPairs !== 1 ? 's' : ''} max
+              </Tag>
+            </div>
+
+            {/* Debug info — visible only if there's an issue */}
+            {debugInfo && (
+              <div style={{ fontSize: 11.5, color: '#9298b5', padding: '8px 10px', background: 'rgba(0,0,0,0.03)', borderRadius: 8 }}>
+                🔍 {debugInfo}
+              </div>
+            )}
+
+            <div style={{ marginTop: 14, fontSize: 12, color: '#9298b5' }}>
+              <strong style={{ color: '#5a6080' }}>Collection Package ID:</strong>
+              <div style={{ fontFamily: 'monospace', wordBreak: 'break-all', marginTop: 4 }}>{NFT_PACKAGE_ID}</div>
+            </div>
+          </>
+        )}
       </Card>
 
-      {/* Balances */}
+      {/* Token Balances */}
       <Card style={{ padding: '22px 24px', marginBottom: 16 }}>
         <div style={labelStyle}>Token Balances</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
           {[...Object.values(TOKENS), { symbol: 'USDC', color: '#2775CA' }].map((token) => (
-            <div key={token.symbol} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(0,0,0,0.02)', borderRadius: 10 }}>
+            <div key={token.symbol} style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '10px 14px',
+              background: 'rgba(0,0,0,0.02)', borderRadius: 10,
+            }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ width: 10, height: 10, borderRadius: '50%', background: token.color || '#2775CA' }} />
-                <span style={{ fontWeight: 600 }}>{token.symbol}</span>
+                <span style={{ fontWeight: 600, fontSize: 14 }}>{token.symbol}</span>
               </div>
               <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 15 }}>
-                {balances[token.symbol] != null
-                  ? balances[token.symbol].toFixed(token.symbol === 'USDC' ? 2 : 4)
-                  : '—'}
+                {loading ? '…' : (
+                  balances[token.symbol] != null
+                    ? balances[token.symbol].toFixed(token.symbol === 'USDC' ? 2 : 4)
+                    : '0.0000'
+                )}
               </span>
             </div>
           ))}
         </div>
       </Card>
 
-      {/* Token contracts */}
+      {/* Contract Addresses */}
       <Card style={{ padding: '22px 24px' }}>
         <div style={labelStyle}>Contract Addresses</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
           {[...Object.values(TOKENS), { symbol: 'USDC', contract: USDC.contract }].map((token) => (
             <div key={token.symbol}>
-              <span style={{ fontSize: 12.5, fontWeight: 600, color: '#5a6080', display: 'block', marginBottom: 3 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#5a6080', display: 'block', marginBottom: 3 }}>
                 {token.symbol}
               </span>
-              <span style={{ fontSize: 11.5, fontFamily: 'monospace', color: '#9298b5', wordBreak: 'break-all' }}>
+              <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#9298b5', wordBreak: 'break-all' }}>
                 {token.contract}
               </span>
             </div>
