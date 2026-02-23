@@ -53,6 +53,13 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      // Em dev local, /api/prices chama CoinGecko diretamente
+      // Em produção Vercel, é servido pela serverless function /api/prices.js
+      '/api/prices': {
+        target: 'https://api.coingecko.com',
+        changeOrigin: true,
+        rewrite: () => '/api/v3/simple/price?ids=sui,walrus-2,deep-book,ika-network&vs_currencies=usd',
+      },
       '/api/7k': {
         target: 'https://api.7k.ag',
         changeOrigin: true,
