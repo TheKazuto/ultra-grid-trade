@@ -1,18 +1,27 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { nodePolyfills } from 'vite-plugin-node-polyfills'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    nodePolyfills({
+      include: ['buffer', 'process', 'util', 'stream'],
+      globals: {
+        Buffer: true,
+        global: true,
+        process: true,
+      },
+    }),
+  ],
   define: {
-    global: 'globalThis',
     'process.env': {},
   },
   resolve: {
     alias: {
       '@': '/src',
     },
-    conditions: ['module', 'import', 'default'],
-    mainFields: ['module', 'main'],
+    conditions: ['import', 'module', 'browser', 'default'],
   },
   optimizeDeps: {
     include: [
@@ -23,14 +32,14 @@ export default defineConfig({
     ],
     esbuildOptions: {
       target: 'esnext',
+      define: {
+        global: 'globalThis',
+      },
     },
   },
   build: {
+    target: 'esnext',
     chunkSizeWarningLimit: 2000,
-    commonjsOptions: {
-      include: [/@mysten\/sui/, /@mysten\/dapp-kit/, /node_modules/],
-      transformMixedEsModules: true,
-    },
     rollupOptions: {
       output: {
         manualChunks: {
