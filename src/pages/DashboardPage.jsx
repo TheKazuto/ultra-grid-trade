@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useCurrentAccount } from '@mysten/dapp-kit'
-import { StatCard, Tag } from '../components/UI.jsx'
+import { StatCard } from '../components/UI.jsx'
 import { BotConfigPanel } from '../components/BotConfigPanel.jsx'
 import { PriceChart } from '../components/PriceChart.jsx'
 import { GridVisual } from '../components/GridVisual.jsx'
@@ -11,8 +11,6 @@ import { useNFT } from '../hooks/useNFT.js'
 export function DashboardPage({ prices, priceHistory }) {
   const account = useCurrentAccount()
   const { tier, balances } = useNFT()
-
-  // Track selected token for chart/grid display
   const [selectedToken, setSelectedToken] = useState(null)
 
   const {
@@ -31,7 +29,9 @@ export function DashboardPage({ prices, priceHistory }) {
     return (
       <div style={{ textAlign: 'center', padding: '80px 0' }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
-        <h2 style={{ fontFamily: "'Syne', sans-serif", fontSize: 22, fontWeight: 700, marginBottom: 8 }}>Wallet Not Connected</h2>
+        <h2 style={{ fontFamily: "'Syne', sans-serif", fontSize: 22, fontWeight: 700, marginBottom: 8 }}>
+          Wallet Not Connected
+        </h2>
         <p style={{ color: '#5a6080', fontSize: 14 }}>Connect your wallet on the Home page to access the dashboard.</p>
       </div>
     )
@@ -39,7 +39,6 @@ export function DashboardPage({ prices, priceHistory }) {
 
   return (
     <div style={{ paddingBottom: 70 }}>
-      {/* Error banner */}
       {lastError && (
         <div style={{ padding: '12px 16px', borderRadius: 10, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', marginBottom: 16, fontSize: 13.5, color: '#ef4444' }}>
           ⚠️ {lastError}
@@ -51,10 +50,9 @@ export function DashboardPage({ prices, priceHistory }) {
         </div>
       )}
 
-      {/* Stats row */}
       <div className="fade-in" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
-        <StatCard label="Current Price"    value={currentPrice ? `$${currentPrice.toFixed(5)}` : '$—'} />
-        <StatCard label="Estimated APR"    value="—%" change="annualized" />
+        <StatCard label="Current Price"  value={currentPrice != null ? `$${currentPrice.toFixed(5)}` : '$—'} />
+        <StatCard label="Estimated APR"  value="—%" change="annualized" />
         <StatCard
           label="PNL (Current)"
           value={`${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`}
@@ -64,13 +62,12 @@ export function DashboardPage({ prices, priceHistory }) {
         <StatCard label="Trade Volume" value={`$${volume.toFixed(2)}`} change="total traded" />
       </div>
 
-      {/* Main grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 20, alignItems: 'start' }}>
-        {/* Left column */}
         <div>
+          {/* history is flat array: priceHistory[selectedToken] */}
           <PriceChart
             token={selectedToken}
-            history={selectedToken ? priceHistory[selectedToken] : []}
+            history={selectedToken ? (priceHistory[selectedToken] || []) : []}
             currentPrice={currentPrice}
           />
           <GridVisual
@@ -83,7 +80,6 @@ export function DashboardPage({ prices, priceHistory }) {
           <TradeHistory trades={trades} />
         </div>
 
-        {/* Right column */}
         <BotConfigPanel
           running={running}
           onStart={handleStart}

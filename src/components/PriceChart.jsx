@@ -2,17 +2,13 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'rec
 import { TOKENS } from '../lib/constants.js'
 import { Card, Tag } from './UI.jsx'
 
-// history prop: flat array of price numbers e.g. [1.23, 1.25, ...]
-// Parent (DashboardPage) already passes priceHistory[selectedToken] — DO NOT re-index
+// history: flat number[] — parent passes priceHistory[token] already indexed
 export function PriceChart({ token, history, currentPrice }) {
   const tokenInfo = token ? TOKENS[token] : null
   const color = tokenInfo?.color || '#6c63ff'
 
-  const safeHistory = Array.isArray(history) ? history : []
-  const data = safeHistory.map((price, i) => ({
-    i,
-    price: parseFloat(Number(price).toFixed(6)),
-  }))
+  const arr = Array.isArray(history) ? history : []
+  const data = arr.map((price, i) => ({ i, price: +Number(price).toFixed(6) }))
 
   return (
     <Card style={{ padding: 24, marginBottom: 20 }}>
@@ -21,7 +17,7 @@ export function PriceChart({ token, history, currentPrice }) {
           <h3 style={{ fontFamily: "'Syne', sans-serif", fontSize: 15, fontWeight: 700 }}>
             Price Chart — {token ? `${token} / USDC` : 'Select a token'}
           </h3>
-          {currentPrice && (
+          {currentPrice != null && (
             <div style={{ fontSize: 13, color: '#5a6080', marginTop: 2 }}>
               Live: <strong style={{ color }}>${currentPrice.toFixed(5)}</strong>
             </div>
@@ -31,7 +27,7 @@ export function PriceChart({ token, history, currentPrice }) {
       </div>
 
       <div style={{ height: 160 }}>
-        {data.length > 1 ? (
+        {data.length >= 2 ? (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
               <defs>
@@ -41,35 +37,27 @@ export function PriceChart({ token, history, currentPrice }) {
                 </linearGradient>
               </defs>
               <XAxis dataKey="i" hide />
-              <YAxis
-                domain={['auto', 'auto']}
-                hide
-              />
+              <YAxis domain={['auto', 'auto']} hide />
               <Tooltip
                 contentStyle={{
                   background: 'rgba(255,255,255,0.95)',
                   border: '1px solid rgba(180,185,220,0.4)',
-                  borderRadius: 8,
-                  fontSize: 12,
-                  fontFamily: "'DM Sans', sans-serif",
+                  borderRadius: 8, fontSize: 12,
                 }}
                 formatter={(v) => [`$${v}`, 'Price']}
                 labelFormatter={() => ''}
               />
               <Area
-                type="monotoneX"
-                dataKey="price"
-                stroke={color}
-                strokeWidth={2}
+                type="monotoneX" dataKey="price"
+                stroke={color} strokeWidth={2}
                 fill={`url(#grad-${token})`}
-                dot={false}
-                isAnimationActive={false}
+                dot={false} isAnimationActive={false}
               />
             </AreaChart>
           </ResponsiveContainer>
         ) : (
           <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9298b5', fontSize: 13 }}>
-            {token ? 'Collecting price data…' : 'Select a token to see the chart'}
+            {token ? 'Collecting price data… (refreshes every 15s)' : 'Select a token to see the chart'}
           </div>
         )}
       </div>

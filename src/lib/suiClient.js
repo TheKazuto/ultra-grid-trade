@@ -1,11 +1,8 @@
-import { SuiClient } from '@mysten/sui/client'
+import { SuiClient, getFullnodeUrl } from '@mysten/sui/client'
 import { NFT_PACKAGE_ID } from './constants.js'
 
-// ============================================================
-// SUI CLIENT - public RPCs with automatic fallback
-// ============================================================
 const RPC_URLS = [
-  'https://fullnode.mainnet.sui.io',
+  getFullnodeUrl('mainnet'),
   'https://sui-mainnet.public.blastapi.io',
   'https://sui-mainnet-rpc.allthatnode.com',
 ]
@@ -16,11 +13,10 @@ async function withFallback(fn) {
   let lastErr
   for (const url of RPC_URLS) {
     try {
-      const client = new SuiClient({ url })
-      return await fn(client)
+      return await fn(new SuiClient({ url }))
     } catch (err) {
       lastErr = err
-      console.warn(`[RPC] ${url} failed, trying next...`, err.message)
+      console.warn(`[RPC] ${url} failed:`, err.message)
     }
   }
   throw lastErr
@@ -28,95 +24,76 @@ async function withFallback(fn) {
 
 // ============================================================
 // CHECK NFT OWNERSHIP
-// 3 strategies in order of speed
+// Strategy 1: Package filter
+// Strategy 2: MoveModule filter (tries common module names)
+// Strategy 3: Full wallet scan matching package ID prefix
 // ============================================================
 export async function checkNFTOwnership(walletAddress) {
+  console.log('[NFT] Checking wallet:', walletAddress)
+  console.log('[NFT] Package ID:', NFT_PACKAGE_ID)
+
   try {
     // Strategy 1: Package filter
-    const byPackage = await withFallback((client) =>
-      client.getOwnedObjects({
+    const byPkg = await withFallback((c) =>
+      c.getOwnedObjects({
         owner: walletAddress,
         filter: { Package: NFT_PACKAGE_ID },
         options: { showType: true },
         limit: 50,
       })
     )
-
-    if (byPackage.data.length > 0) {
-      console.log(`[NFT] Found ${byPackage.data.length} via Package filter`)
-      return { count: byPackage.data.length, nfts: byPackage.data }
+    console.log('[NFT] Package filter:', byPkg.data.length, 'result(s)')
+    if (byPkg.data.length > 0) {
+      return { count: byPkg.data.length, nfts: byPkg.data }
     }
 
-    // Strategy 2: MoveModule filter — tries common module names
-    const moduleNames = ['nft', 'ultra_grid_nft', 'grid_nft', 'pass', 'access', 'token']
-    for (const moduleName of moduleNames) {
+    // Strategy 2: MoveModule filter
+    for (const mod of ['nft', 'pass', 'access', 'badge', 'grid', 'ultra', 'token', 'item', 'member']) {
       try {
-        const byModule = await withFallback((client) =>
-          client.getOwnedObjects({
+        const res = await withFallback((c) =>
+          c.getOwnedObjects({
             owner: walletAddress,
-            filter: {
-              MoveModule: {
-                package: NFT_PACKAGE_ID,
-                module: moduleName,
-              },
-            },
+            filter: { MoveModule: { package: NFT_PACKAGE_ID, module: mod } },
             options: { showType: true },
             limit: 50,
           })
         )
-        if (byModule.data.length > 0) {
-          console.log(`[NFT] Found ${byModule.data.length} via MoveModule (${moduleName})`)
-          return { count: byModule.data.length, nfts: byModule.data }
+        if (res.data.length > 0) {
+          console.log(`[NFT] MoveModule::${mod}:`, res.data.length, 'result(s)')
+          return { count: res.data.length, nfts: res.data }
         }
       } catch {}
     }
 
-    // Strategy 3: Full scan with type prefix match
-    console.log('[NFT] Filters returned 0, falling back to full scan...')
-    let allObjects = []
-    let cursor = null
-    let hasNextPage = true
-
-    while (hasNextPage) {
-      const page = await withFallback((client) =>
-        client.getOwnedObjects({
+    // Strategy 3: Full wallet scan
+    console.log('[NFT] Starting full wallet scan...')
+    let all = [], cursor = null, hasNext = true
+    while (hasNext && all.length < 1000) {
+      const page = await withFallback((c) =>
+        c.getOwnedObjects({
           owner: walletAddress,
           options: { showType: true },
-          cursor,
-          limit: 50,
+          cursor, limit: 50,
         })
       )
-      allObjects = [...allObjects, ...page.data]
-      hasNextPage = page.hasNextPage
+      all = [...all, ...page.data]
+      hasNext = page.hasNextPage
       cursor = page.nextCursor
-      if (allObjects.length >= 500) break
     }
 
-    const nfts = allObjects.filter((obj) => {
-      const type = obj.data?.type || ''
-      return type.startsWith(NFT_PACKAGE_ID)
+    // Log ALL object types so we can debug from the console
+    console.log('[NFT] All object types in wallet:')
+    all.forEach((o) => {
+      if (o.data?.type) console.log(' -', o.data.type)
     })
 
-    console.log(`[NFT] Full scan found ${nfts.length} objects matching package ID`)
+    const nfts = all.filter((o) => (o.data?.type || '').startsWith(NFT_PACKAGE_ID))
+    console.log(`[NFT] Full scan: ${all.length} total, ${nfts.length} match package`)
     return { count: nfts.length, nfts }
 
   } catch (err) {
-    console.error('[NFT] checkNFTOwnership error:', err)
+    console.error('[NFT] Error:', err)
     return { count: 0, nfts: [], error: err.message }
-  }
-}
-
-// ============================================================
-// GET TOKEN BALANCE
-// ============================================================
-export async function getTokenBalance(walletAddress, coinType) {
-  try {
-    const balance = await withFallback((client) =>
-      client.getBalance({ owner: walletAddress, coinType })
-    )
-    return BigInt(balance.totalBalance)
-  } catch {
-    return 0n
   }
 }
 
@@ -125,16 +102,23 @@ export async function getTokenBalance(walletAddress, coinType) {
 // ============================================================
 export async function getAllBalances(walletAddress) {
   try {
-    const balances = await withFallback((client) =>
-      client.getAllBalances({ owner: walletAddress })
-    )
+    const balances = await withFallback((c) => c.getAllBalances({ owner: walletAddress }))
     const result = {}
     for (const b of balances) {
       result[b.coinType] = BigInt(b.totalBalance)
     }
     return result
   } catch (err) {
-    console.error('[Balances] getAllBalances error:', err)
+    console.error('[Balances] Error:', err)
     return {}
+  }
+}
+
+export async function getTokenBalance(walletAddress, coinType) {
+  try {
+    const b = await withFallback((c) => c.getBalance({ owner: walletAddress, coinType }))
+    return BigInt(b.totalBalance)
+  } catch {
+    return 0n
   }
 }

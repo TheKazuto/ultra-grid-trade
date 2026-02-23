@@ -1,82 +1,85 @@
-import { getQuote, buildTx, Config, getTokenPrice, getTokenPrices } from '@7kprotocol/sdk-ts'
-import { SuiClient } from '@mysten/sui/client'
-import { NFT_PACKAGE_ID } from './constants.js'
+import { getQuote, buildTx, Config } from '@7kprotocol/sdk-ts'
+import { SuiClient, getFullnodeUrl } from '@mysten/sui/client'
 
-// ============================================================
-// 7K SDK - correct initialization via Config (v2 API)
-// ============================================================
 let initialized = false
 
 function init7K() {
   if (!initialized) {
-    // v2 API: Config.setSuiClient() instead of the old setSuiClient()
-    const client = new SuiClient({ url: 'https://fullnode.mainnet.sui.io' })
-    Config.setSuiClient(client)
+    const suiClient = new SuiClient({ url: getFullnodeUrl('mainnet') })
+    Config.setSuiClient(suiClient)
     initialized = true
-    console.log('[7K] SDK initialized via Config')
   }
 }
 
 // ============================================================
-// GET QUOTE FROM 7K AGGREGATOR
-// ============================================================
-export async function get7KQuote({ tokenInContract, tokenOutContract, amountIn }) {
-  init7K()
-  const quote = await getQuote({
-    tokenIn: tokenInContract,
-    tokenOut: tokenOutContract,
-    amountIn: amountIn.toString(),
-  })
-  return quote
-}
-
-// ============================================================
-// BUILD TRANSACTION FROM 7K QUOTE
-// ============================================================
-export async function build7KTx({ quoteResponse, walletAddress, slippage, partnerAddress }) {
-  init7K()
-  const result = await buildTx({
-    quoteResponse,
-    accountAddress: walletAddress,
-    slippage,
-    commission: {
-      // partner is required even at 0 bps — needed for analytics
-      partner: partnerAddress || walletAddress,
-      commissionBps: 0,
-    },
-  })
-  return result
-}
-
-// ============================================================
-// GET PRICE FROM 7K — uses native SDK function (no CORS issues)
+// GET PRICE — calls our Vercel proxy instead of prices.7k.ag
+// directly (which is blocked by CORS in the browser)
 // ============================================================
 export async function get7KPrice(tokenContract) {
   try {
-    init7K()
-    const price = await getTokenPrice(tokenContract)
-    return price ? parseFloat(price) : null
+    const res = await fetch(
+      `/proxy/7k-prices/price?coinType=${encodeURIComponent(tokenContract)}`
+    )
+    if (!res.ok) throw new Error(`status ${res.status}`)
+    const data = await res.json()
+    // Response shape: { price: "1.23" } or { [coinType]: { price: "1.23" } }
+    const price = data?.price ?? data?.[tokenContract]?.price
+    return price != null ? parseFloat(price) : null
   } catch (err) {
-    console.warn('[7K] Price fetch failed:', err.message)
+    console.warn('[7K] get7KPrice failed:', err.message)
     return null
   }
 }
 
 // ============================================================
-// GET MULTIPLE PRICES FROM 7K
+// GET MULTIPLE PRICES — calls proxy for each contract
 // ============================================================
 export async function get7KPrices(tokenContracts) {
   try {
-    init7K()
-    const prices = await getTokenPrices(tokenContracts)
-    // Returns { [coinType]: price }
-    const result = {}
-    for (const [coinType, price] of Object.entries(prices)) {
-      result[coinType] = price ? parseFloat(price) : null
+    const params = tokenContracts
+      .map((c) => `coinType=${encodeURIComponent(c)}`)
+      .join('&')
+    const res = await fetch(`/proxy/7k-prices/price?${params}`)
+    if (!res.ok) throw new Error(`status ${res.status}`)
+    const data = await res.json()
+
+    const out = {}
+    for (const contract of tokenContracts) {
+      // Try both shapes the API might return
+      const price = data?.[contract]?.price ?? data?.price
+      if (price != null) out[contract] = parseFloat(price)
     }
-    return result
+    return out
   } catch (err) {
-    console.warn('[7K] Multi-price fetch failed:', err.message)
+    console.warn('[7K] get7KPrices failed:', err.message)
     return {}
   }
+}
+
+// ============================================================
+// GET QUOTE — uses the SDK (goes through 7K's quote endpoint)
+// ============================================================
+export async function get7KQuote({ tokenInContract, tokenOutContract, amountIn }) {
+  init7K()
+  return getQuote({
+    tokenIn: tokenInContract,
+    tokenOut: tokenOutContract,
+    amountIn: amountIn.toString(),
+  })
+}
+
+// ============================================================
+// BUILD TX
+// ============================================================
+export async function build7KTx({ quoteResponse, walletAddress, slippage, partnerAddress }) {
+  init7K()
+  return buildTx({
+    quoteResponse,
+    accountAddress: walletAddress,
+    slippage,
+    commission: {
+      partner: partnerAddress || walletAddress,
+      commissionBps: 0,
+    },
+  })
 }

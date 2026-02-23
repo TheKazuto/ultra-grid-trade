@@ -1,25 +1,46 @@
 import { Aftermath } from 'aftermath-ts-sdk'
 
-// ============================================================
-// AFTERMATH SDK - singleton, lazy initialized
-// ============================================================
+// Singleton SDK instance
 let afInstance = null
 let initPromise = null
 
 async function getAftermath() {
   if (afInstance) return afInstance
   if (initPromise) return initPromise
-
   initPromise = (async () => {
     const sdk = new Aftermath('MAINNET')
     await sdk.init()
     afInstance = sdk
     initPromise = null
-    console.log('[Aftermath] SDK initialized')
     return sdk
   })()
-
   return initPromise
+}
+
+// ============================================================
+// GET PRICE (single coin) — uses getCoinPrice per official docs
+// ============================================================
+export async function getAftermathPrice(coinType) {
+  const af = await getAftermath()
+  const prices = af.Prices()
+  // Official API: getCoinPrice({ coin }) → number
+  const price = await prices.getCoinPrice({ coin: coinType })
+  return price != null ? parseFloat(price) : null
+}
+
+// ============================================================
+// GET PRICES (multiple coins) — uses getCoinsToPrice per official docs
+// ============================================================
+export async function getAftermathPrices(coinTypes) {
+  const af = await getAftermath()
+  const prices = af.Prices()
+  // Official API: getCoinsToPrice({ coins }) → Record<CoinType, number>
+  const result = await prices.getCoinsToPrice({ coins: coinTypes })
+  const out = {}
+  for (const [coinType, price] of Object.entries(result || {})) {
+    out[coinType] = price != null ? parseFloat(price) : null
+  }
+  return out
 }
 
 // ============================================================
@@ -29,8 +50,8 @@ export async function buildAftermathTx({
   walletAddress,
   tokenInContract,
   tokenOutContract,
-  amountIn,   // BigInt in base units
-  slippage,   // decimal, e.g. 0.005 for 0.5%
+  amountIn,
+  slippage,
 }) {
   const af = await getAftermath()
   const router = af.Router()
@@ -48,46 +69,4 @@ export async function buildAftermathTx({
   })
 
   return { txb, route }
-}
-
-// ============================================================
-// GET PRICE FROM AFTERMATH — uses Prices SDK (correct API)
-// route.coinOut is an object: { type, amount, tradeFee }
-// To get implied price: coinOut.amount / coinIn.amount (adjusted for decimals)
-// ============================================================
-export async function getAftermathPrice(tokenContract, tokenDecimals, usdcDecimals = 6) {
-  try {
-    const af = await getAftermath()
-    const prices = af.Prices()
-
-    // getCoinPricesInUsd returns { [coinType]: priceInUsd }
-    const result = await prices.getCoinPricesInUsd({ coins: [tokenContract] })
-    if (result?.[tokenContract] != null) {
-      return parseFloat(result[tokenContract])
-    }
-    return null
-  } catch (err) {
-    console.warn('[Aftermath] Price fetch failed:', err.message)
-    return null
-  }
-}
-
-// ============================================================
-// GET MULTIPLE PRICES FROM AFTERMATH
-// ============================================================
-export async function getAftermathPrices(tokenContracts) {
-  try {
-    const af = await getAftermath()
-    const prices = af.Prices()
-    const result = await prices.getCoinPricesInUsd({ coins: tokenContracts })
-    // result is { [coinType]: number }
-    const out = {}
-    for (const [coinType, price] of Object.entries(result || {})) {
-      out[coinType] = price != null ? parseFloat(price) : null
-    }
-    return out
-  } catch (err) {
-    console.warn('[Aftermath] Multi-price fetch failed:', err.message)
-    return {}
-  }
 }
