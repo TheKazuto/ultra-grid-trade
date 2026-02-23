@@ -1,18 +1,54 @@
 import { useState, useEffect, useRef } from 'react'
-import { TOKENS } from '../lib/constants.js'
-import { get7KPrices } from '../lib/sevenK.js'
 import { getAftermathPrices } from '../lib/aftermath.js'
 
-// CoinGecko public API (no key needed, rate limited but reliable)
-const CG_IDS = {
-  SUI:  'sui',
-  WAL:  'walrus-2',
-  DEEP: 'deep-book',
-  IKA:  'ika-network',
+// ============================================================
+// Token map: symbol → Binance pair + CoinGecko ID
+// ============================================================
+const TOKEN_MAP = {
+  SUI:  { binance: 'SUIUSDT',  cgId: 'sui'       },
+  WAL:  { binance: 'WALUSDT',  cgId: 'walrus-2'   },
+  DEEP: { binance: 'DEEPUSDT', cgId: 'deep-book'  },
+  IKA:  { binance: null,       cgId: 'ika-network' }, // IKA sem par Binance ainda
 }
 
-async function fetchCoinGecko() {
-  const ids = Object.values(CG_IDS).join(',')
+// ── 1. Binance — público, sem CORS, sem chave ──────────────
+async function fetchBinance() {
+  const pairs = Object.entries(TOKEN_MAP).filter(([, v]) => v.binance)
+  const results = await Promise.allSettled(
+    pairs.map(async ([sym, { binance }]) => {
+      const res = await fetch(
+        `https://api.binance.com/api/v3/ticker/price?symbol=${binance}`,
+        { signal: AbortSignal.timeout(5000) }
+      )
+      if (!res.ok) throw new Error(`Binance ${res.status}`)
+      const data = await res.json()
+      return [sym, parseFloat(data.price)]
+    })
+  )
+  const out = {}
+  results.forEach((r) => { if (r.status === 'fulfilled') out[r.value[0]] = r.value[1] })
+  return out
+}
+
+// ── 2. Aftermath SDK ───────────────────────────────────────
+import { TOKENS } from '../lib/constants.js'
+
+async function fetchAftermath(missingSyms) {
+  const contracts = missingSyms.map((s) => TOKENS[s]?.contract).filter(Boolean)
+  if (!contracts.length) return {}
+  const data = await getAftermathPrices(contracts)
+  const out = {}
+  for (const sym of missingSyms) {
+    const contract = TOKENS[sym]?.contract
+    if (contract && data[contract] != null) out[sym] = data[contract]
+  }
+  return out
+}
+
+// ── 3. CoinGecko — fallback final ─────────────────────────
+async function fetchCoinGecko(missingSyms) {
+  const ids = missingSyms.map((s) => TOKEN_MAP[s]?.cgId).filter(Boolean).join(',')
+  if (!ids) return {}
   const res = await fetch(
     `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`,
     { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8000) }
@@ -20,104 +56,58 @@ async function fetchCoinGecko() {
   if (!res.ok) throw new Error(`CoinGecko ${res.status}`)
   const data = await res.json()
   const out = {}
-  for (const [sym, cgId] of Object.entries(CG_IDS)) {
-    if (data[cgId]?.usd != null) out[sym] = parseFloat(data[cgId].usd)
+  for (const sym of missingSyms) {
+    const cgId = TOKEN_MAP[sym]?.cgId
+    if (cgId && data[cgId]?.usd != null) out[sym] = parseFloat(data[cgId].usd)
   }
   return out
 }
 
-// Binance public API — no key, no CORS issues
-const BINANCE_PAIRS = {
-  SUI:  'SUIUSDT',
-  WAL:  'WALUSDT',
-  DEEP: 'DEEPUSDT',
-}
-async function fetchBinance() {
-  const out = {}
-  await Promise.allSettled(
-    Object.entries(BINANCE_PAIRS).map(async ([sym, pair]) => {
-      const res = await fetch(
-        `https://api.binance.com/api/v3/ticker/price?symbol=${pair}`,
-        { signal: AbortSignal.timeout(5000) }
-      )
-      if (!res.ok) return
-      const data = await res.json()
-      if (data?.price) out[sym] = parseFloat(data.price)
-    })
-  )
-  return out
-}
-
+// ============================================================
 export function usePrices() {
   const [prices, setPrices] = useState({ SUI: null, WAL: null, DEEP: null, IKA: null })
   const [history, setHistory] = useState({ SUI: [], WAL: [], DEEP: [], IKA: [] })
   const intervalRef = useRef(null)
 
   const fetchAll = async () => {
-    let newPrices = {}
+    let result = {}
 
-    // ── 1. Try 7K SDK (calls prices.7k.ag internally) ─────────
+    // 1. Binance (mais rápido e confiável)
     try {
-      const contracts = Object.values(TOKENS).map((t) => t.contract)
-      const data = await get7KPrices(contracts)
-      for (const [sym, token] of Object.entries(TOKENS)) {
-        if (data[token.contract] != null) newPrices[sym] = data[token.contract]
-      }
-      console.log('[Prices] 7K result:', newPrices)
+      const binance = await fetchBinance()
+      Object.assign(result, binance)
+      console.log('[Prices] Binance:', result)
     } catch (err) {
-      console.warn('[Prices] 7K failed:', err.message)
+      console.warn('[Prices] Binance failed:', err.message)
     }
 
-    const missing = Object.keys(TOKENS).filter((sym) => newPrices[sym] == null)
+    const missing1 = Object.keys(TOKEN_MAP).filter((s) => result[s] == null)
 
-    // ── 2. Fill gaps with Aftermath SDK ───────────────────────
-    if (missing.length > 0) {
+    // 2. Aftermath para os que faltam
+    if (missing1.length > 0) {
       try {
-        const missingContracts = missing.map((sym) => TOKENS[sym].contract)
-        const data = await getAftermathPrices(missingContracts)
-        for (const sym of missing) {
-          const contract = TOKENS[sym].contract
-          if (data[contract] != null) newPrices[sym] = data[contract]
-        }
-        console.log('[Prices] Aftermath result:', newPrices)
+        const af = await fetchAftermath(missing1)
+        Object.assign(result, af)
+        console.log('[Prices] Aftermath fill:', af)
       } catch (err) {
         console.warn('[Prices] Aftermath failed:', err.message)
       }
     }
 
-    const stillMissing = Object.keys(TOKENS).filter((sym) => newPrices[sym] == null)
+    const missing2 = Object.keys(TOKEN_MAP).filter((s) => result[s] == null)
 
-    // ── 3. Binance (fast, no CORS, no key) ────────────────────
-    if (stillMissing.length > 0) {
+    // 3. CoinGecko como último recurso
+    if (missing2.length > 0) {
       try {
-        const binance = await fetchBinance()
-        for (const sym of stillMissing) {
-          if (binance[sym] != null) newPrices[sym] = binance[sym]
-        }
-        console.log('[Prices] Binance result:', newPrices)
-      } catch (err) {
-        console.warn('[Prices] Binance failed:', err.message)
-      }
-    }
-
-    const finalMissing = Object.keys(TOKENS).filter((sym) => newPrices[sym] == null)
-
-    // ── 4. CoinGecko final fallback ───────────────────────────
-    if (finalMissing.length > 0) {
-      try {
-        const cg = await fetchCoinGecko()
-        for (const sym of finalMissing) {
-          if (cg[sym] != null) newPrices[sym] = cg[sym]
-        }
-        console.log('[Prices] CoinGecko result:', newPrices)
+        const cg = await fetchCoinGecko(missing2)
+        Object.assign(result, cg)
+        console.log('[Prices] CoinGecko fill:', cg)
       } catch (err) {
         console.warn('[Prices] CoinGecko failed:', err.message)
       }
     }
 
-    if (Object.keys(newPrices).length > 0) {
-      applyPrices(newPrices)
-    }
+    if (Object.keys(result).length > 0) applyPrices(result)
   }
 
   function applyPrices(p) {
