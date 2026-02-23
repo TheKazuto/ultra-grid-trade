@@ -21,7 +21,7 @@ export function BotConfigPanel({
   prices,
 }) {
   const [token, setToken] = useState(null)
-  const [dex, setDex] = useState('aftermath')
+  const dex = 'aftermath'  // Aftermath Finance — lowest fees on Sui
   const [priceMin, setPriceMin] = useState('')
   const [priceMax, setPriceMax] = useState('')
   const [gridCount, setGridCount] = useState('10')
@@ -129,30 +129,15 @@ export function BotConfigPanel({
           </div>
         </div>
 
-        {/* DEX selector */}
+        {/* DEX — fixed to Aftermath */}
         <div>
           <div style={labelStyle}>Routing</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 7 }}>
-            {[
-              { id: 'aftermath', label: '🌊 Aftermath', color: '#6c63ff' },
-              { id: '7k',        label: '⚡ 7K Aggregator', color: '#38bdf8' },
-            ].map((d) => (
-              <button
-                key={d.id}
-                onClick={() => setDex(d.id)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '10px 12px', borderRadius: 10,
-                  border: `1.5px solid ${dex === d.id ? d.color : 'rgba(180,185,220,0.35)'}`,
-                  background: dex === d.id ? `${d.color}10` : 'transparent',
-                  fontSize: 13, fontWeight: 500,
-                  color: dex === d.id ? d.color : '#5a6080',
-                  transition: 'all 0.18s', cursor: 'pointer',
-                }}
-              >
-                {d.label}
-              </button>
-            ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 7, padding: '10px 14px', borderRadius: 10, border: '1.5px solid #6c63ff', background: '#6c63ff10' }}>
+            <span style={{ fontSize: 18 }}>🌊</span>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#6c63ff' }}>Aftermath Finance</div>
+              <div style={{ fontSize: 11, color: '#9298b5', marginTop: 1 }}>Lowest fees on Sui</div>
+            </div>
           </div>
         </div>
 
