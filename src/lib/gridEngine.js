@@ -138,14 +138,14 @@ export class GridBotEngine {
       console.log(`[GridBot] ${side} @ ${price} | level ${level} | amountIn ${amountIn}`)
 
       // ── Construir transação via Aftermath ────
-      const result = await buildAftermathTx({
+      const buildResult = await buildAftermathTx({
         walletAddress:    this.walletAddress,
         tokenInContract,
         tokenOutContract,
         amountIn,
         slippage: this.slippage,
       })
-      txb = result.txb
+      txb = buildResult.txb
 
       if (!txb) throw new Error('Transaction build failed — txb is null')
 
