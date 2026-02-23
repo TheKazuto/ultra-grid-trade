@@ -20,6 +20,10 @@ export function DashboardPage({ prices, priceHistory }) {
     lastError, lastRebalance,
   } = useGridBot()
 
+  const handleTokenSelect = (sym) => {
+    setSelectedToken(sym)
+  }
+
   const handleStart = (config) => {
     setSelectedToken(config.token)
     startBot({ ...config, walletAddress: account?.address })
@@ -68,7 +72,7 @@ export function DashboardPage({ prices, priceHistory }) {
           <PriceChart
             token={selectedToken}
             history={selectedToken ? (priceHistory[selectedToken] || []) : []}
-            currentPrice={currentPrice}
+            currentPrice={currentPrice ?? (selectedToken ? prices[selectedToken] : null)}
           />
           <GridVisual
             levels={levels}
@@ -85,6 +89,7 @@ export function DashboardPage({ prices, priceHistory }) {
           onStart={handleStart}
           onStop={stopBot}
           onReset={resetBot}
+          onTokenSelect={handleTokenSelect}
           tier={tier}
           walletConnected={!!account}
           balances={balances}

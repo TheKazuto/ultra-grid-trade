@@ -14,6 +14,7 @@ export function BotConfigPanel({
   onStart,
   onStop,
   onReset,
+  onTokenSelect,
   tier,
   walletConnected,
   balances,
@@ -31,6 +32,7 @@ export function BotConfigPanel({
   // Auto-fill price range when token is selected
   const handleSelectToken = (sym) => {
     setToken(sym)
+    onTokenSelect?.(sym)   // notifica o Dashboard imediatamente para mostrar chart
     const p = prices[sym]
     if (p && !priceMin && !priceMax) {
       setPriceMin((p * 0.88).toFixed(5))
