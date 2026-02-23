@@ -41,7 +41,7 @@ export function HomePage({ setPage, nft }) {
           { icon: '⚡', color: 'rgba(108,99,255,0.12)', title: 'Linear Grid Strategy', desc: 'Equal-spaced grid levels with automatic rebalancing when price exits your range.' },
           { icon: '🛡️', color: 'rgba(56,189,248,0.12)', title: 'Delegated Signing', desc: 'Limited delegated signing — the bot never has full custody of your assets.' },
           { icon: '📈', color: 'rgba(34,197,94,0.12)',  title: 'Best Price Routing', desc: 'Routes through Aftermath DEX and 7K Aggregator for optimal fills.' },
-          { icon: '🎫', color: 'rgba(245,158,11,0.12)', title: 'NFT-Gated Access', desc: 'Exclusive to Ultra Grid Trade NFT holders. More NFTs unlock more pairs.' },
+          { icon: '🎫', color: 'rgba(245,158,11,0.12)', title: 'NFT-Gated Access', desc: 'Exclusive to Ultra NFT holders. More NFTs unlock more pairs.' },
         ].map((c) => (
           <Card key={c.title} style={{ padding: 24, transition: 'transform 0.2s, box-shadow 0.2s', cursor: 'default' }}
             className="hover-lift"
