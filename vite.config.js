@@ -25,7 +25,6 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: [
-      '@mysten/sui',
       '@mysten/dapp-kit',
       'aftermath-ts-sdk',
       '@7kprotocol/sdk-ts',
@@ -43,7 +42,8 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'sui-sdk':        ['@mysten/sui', '@mysten/dapp-kit'],
+          // ⚠️ REMOVIDO @mysten/sui daqui — ele não tem export "." raiz
+          'dapp-kit':       ['@mysten/dapp-kit'],
           'aftermath-sdk':  ['aftermath-ts-sdk'],
           'sevenkprotocol': ['@7kprotocol/sdk-ts'],
           'charts':         ['recharts'],
