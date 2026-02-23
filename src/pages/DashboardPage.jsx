@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useCurrentAccount } from '@mysten/dapp-kit'
 import { StatCard, Tag } from '../components/UI.jsx'
 import { BotConfigPanel } from '../components/BotConfigPanel.jsx'
@@ -11,6 +12,9 @@ export function DashboardPage({ prices, priceHistory }) {
   const account = useCurrentAccount()
   const { tier, balances } = useNFT()
 
+  // Track selected token for chart/grid display
+  const [selectedToken, setSelectedToken] = useState(null)
+
   const {
     running, startBot, stopBot, resetBot,
     currentPrice, pnl, volume, trades,
@@ -18,12 +22,8 @@ export function DashboardPage({ prices, priceHistory }) {
     lastError, lastRebalance,
   } = useGridBot()
 
-  // Selected token from config panel
-  // We track it here for chart/grid display
-  const [selectedToken, setSelectedToken] = window.__gridTokenRef || [null, () => {}]
-
-  // Wrapper: capture token for display, then start bot
   const handleStart = (config) => {
+    setSelectedToken(config.token)
     startBot({ ...config, walletAddress: account?.address })
   }
 
@@ -69,8 +69,8 @@ export function DashboardPage({ prices, priceHistory }) {
         {/* Left column */}
         <div>
           <PriceChart
-            token={running ? null : null}  /* token set when bot starts */
-            history={priceHistory}
+            token={selectedToken}
+            history={selectedToken ? priceHistory[selectedToken] : []}
             currentPrice={currentPrice}
           />
           <GridVisual
@@ -78,7 +78,7 @@ export function DashboardPage({ prices, priceHistory }) {
             priceMin={priceMin}
             priceMax={priceMax}
             currentPrice={currentPrice}
-            token={null}
+            token={selectedToken}
           />
           <TradeHistory trades={trades} />
         </div>

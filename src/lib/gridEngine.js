@@ -1,6 +1,7 @@
 import { calcGridLevels, toBaseUnits, fromBaseUnits, makeTrade, USDC } from './constants.js'
 import { buildAftermathTx } from './aftermath.js'
-import { get7KQuote, build7KTx } from './sevenK.js'
+import { get7KQuote, build7KTx, get7KPrice } from './sevenK.js'
+import { getAftermathPrice } from './aftermath.js'
 
 // ============================================================
 // GRID BOT ENGINE
@@ -17,18 +18,18 @@ export class GridBotEngine {
     mode,
     dex,
     walletAddress,
-    signAndExecute, // from @mysten/dapp-kit useSignAndExecuteTransaction
-    onTrade,        // callback when a trade completes
-    onRebalance,    // callback when grid rebalances
-    onError,        // callback on error
-    onPriceUpdate,  // callback with latest price
+    signAndExecute,
+    onTrade,
+    onRebalance,
+    onError,
+    onPriceUpdate,
   }) {
     this.token = token
     this.priceMin = parseFloat(priceMin)
     this.priceMax = parseFloat(priceMax)
     this.gridCount = parseInt(gridCount)
     this.capitalUsdc = parseFloat(capitalUsdc)
-    this.slippage = parseFloat(slippage) / 100  // convert % to decimal
+    this.slippage = parseFloat(slippage) / 100
     this.mode = mode
     this.dex = dex
     this.walletAddress = walletAddress
@@ -38,7 +39,6 @@ export class GridBotEngine {
     this.onError = onError || (() => {})
     this.onPriceUpdate = onPriceUpdate || (() => {})
 
-    // Grid state
     this.levels = calcGridLevels(this.priceMin, this.priceMax, this.gridCount)
     this.capitalPerGrid = this.capitalUsdc / this.gridCount
     this.lastPrice = null
@@ -46,13 +46,11 @@ export class GridBotEngine {
     this.running = false
     this.interval = null
 
-    // Stats
     this.pnl = 0
     this.volume = 0
     this.trades = []
     this.startTime = null
 
-    // Interval timing by mode (ms between price checks)
     this.checkInterval = {
       conservative: 12000,
       balanced: 8000,
@@ -60,23 +58,15 @@ export class GridBotEngine {
     }[mode] || 8000
   }
 
-  // ────────────────────────────────────────────────────────
-  // START — begins polling for price and executing trades
-  // ────────────────────────────────────────────────────────
   start() {
     if (this.running) return
     this.running = true
     this.startTime = Date.now()
     console.log('[GridBot] Starting. Levels:', this.levels)
-
     this.interval = setInterval(() => this._tick(), this.checkInterval)
-    // First tick immediately
     this._tick()
   }
 
-  // ────────────────────────────────────────────────────────
-  // STOP
-  // ────────────────────────────────────────────────────────
   stop() {
     this.running = false
     if (this.interval) {
@@ -86,9 +76,6 @@ export class GridBotEngine {
     console.log('[GridBot] Stopped.')
   }
 
-  // ────────────────────────────────────────────────────────
-  // TICK — called on interval
-  // ────────────────────────────────────────────────────────
   async _tick() {
     if (!this.running) return
 
@@ -98,24 +85,20 @@ export class GridBotEngine {
 
       this.onPriceUpdate(currentPrice)
 
-      // Check if price is out of range — trigger rebalance
       if (currentPrice < this.priceMin || currentPrice > this.priceMax) {
         await this._rebalanceGrid(currentPrice)
         return
       }
 
-      // Detect which grid level the price just crossed
       const crossedLevel = this._detectCrossing(currentPrice)
       if (!crossedLevel) {
         this.lastPrice = currentPrice
         return
       }
 
-      // Determine BUY or SELL based on direction of crossing
       const side = currentPrice > this.lastPrice ? 'SELL' : 'BUY'
       console.log(`[GridBot] Price crossed level $${crossedLevel} → ${side}`)
 
-      // Execute trade
       await this._executeTrade({ side, price: currentPrice, level: crossedLevel })
       this.lastCrossedLevel = crossedLevel
       this.lastPrice = currentPrice
@@ -128,43 +111,24 @@ export class GridBotEngine {
 
   // ────────────────────────────────────────────────────────
   // FETCH CURRENT PRICE
-  // Tries 7K price API, falls back to Aftermath
+  // Uses 7K SDK price function (no CORS), then Aftermath Prices API
   // ────────────────────────────────────────────────────────
   async _fetchPrice() {
+    // Try 7K SDK price (native, no CORS issues)
     try {
-      // Try 7K price first (fast)
-      const res = await fetch(
-        `https://api.7k.ag/prices?coinTypes=${encodeURIComponent(this.token.contract)}`
-      )
-      if (res.ok) {
-        const data = await res.json()
-        const values = Object.values(data)
-        if (values[0]?.price) return parseFloat(values[0].price)
-      }
+      const price = await get7KPrice(this.token.contract)
+      if (price != null) return price
     } catch {}
 
+    // Fallback: Aftermath Prices SDK
     try {
-      // Fallback: small test quote from Aftermath to get implied price
-      const testAmount = toBaseUnits('1', this.token.decimals)
-      const { route } = await buildAftermathTx({
-        walletAddress: this.walletAddress,
-        tokenInContract: this.token.contract,
-        tokenOutContract: USDC.contract,
-        amountIn: testAmount,
-        slippage: 0.01,
-      })
-      if (route?.coinOut) {
-        return fromBaseUnits(route.coinOut, USDC.decimals)
-      }
+      const price = await getAftermathPrice(this.token.contract, this.token.decimals)
+      if (price != null) return price
     } catch {}
 
     return null
   }
 
-  // ────────────────────────────────────────────────────────
-  // DETECT GRID CROSSING
-  // Returns the grid level price that was crossed, or null
-  // ────────────────────────────────────────────────────────
   _detectCrossing(currentPrice) {
     if (!this.lastPrice) {
       this.lastPrice = currentPrice
@@ -184,35 +148,22 @@ export class GridBotEngine {
     return null
   }
 
-  // ────────────────────────────────────────────────────────
-  // EXECUTE TRADE
-  // Builds and signs a swap transaction via the selected DEX
-  // ────────────────────────────────────────────────────────
   async _executeTrade({ side, price, level }) {
     try {
-      // Amount to trade per grid level (in USDC equivalent)
       const usdcAmount = this.capitalPerGrid
-
-      // Convert to token or USDC base units
-      let txb
-      let tokenInContract
-      let tokenOutContract
-      let amountIn
+      let txb, tokenInContract, tokenOutContract, amountIn
 
       if (side === 'BUY') {
-        // Spend USDC to buy the token
         tokenInContract = USDC.contract
         tokenOutContract = this.token.contract
         amountIn = toBaseUnits(usdcAmount.toString(), USDC.decimals)
       } else {
-        // Sell token to get USDC
         tokenInContract = this.token.contract
         tokenOutContract = USDC.contract
         const tokenAmount = usdcAmount / price
         amountIn = toBaseUnits(tokenAmount.toFixed(this.token.decimals), this.token.decimals)
       }
 
-      // Build transaction via selected DEX
       if (this.dex === 'aftermath') {
         const result = await buildAftermathTx({
           walletAddress: this.walletAddress,
@@ -235,14 +186,10 @@ export class GridBotEngine {
           slippage: this.slippage,
           partnerAddress: this.walletAddress,
         })
+        // 7K SDK returns { tx, coinOut }
         txb = result.tx
       }
 
-      // ──────────────────────────────────────────────────
-      // SIGN & EXECUTE VIA USER'S WALLET
-      // The wallet shows a confirmation popup to the user
-      // The bot NEVER has custody of funds — fully delegated
-      // ──────────────────────────────────────────────────
       const { digest } = await new Promise((resolve, reject) => {
         this.signAndExecute(
           { transaction: txb },
@@ -253,18 +200,15 @@ export class GridBotEngine {
         )
       })
 
-      // Update stats
       this.volume += usdcAmount
       const gridSpacing = (this.priceMax - this.priceMin) / (this.gridCount - 1)
       const gridProfit = (gridSpacing / price) * usdcAmount
-      this.pnl += gridProfit * 0.85 // approximate after fees
+      this.pnl += gridProfit * 0.85
 
       const trade = makeTrade({
         side,
         price,
-        amount: side === 'BUY'
-          ? (usdcAmount / price).toFixed(6)
-          : (usdcAmount / price).toFixed(6),
+        amount: (usdcAmount / price).toFixed(6),
         token: this.token.symbol,
         via: this.dex === 'aftermath' ? 'Aftermath' : '7K',
         digest,
@@ -288,11 +232,6 @@ export class GridBotEngine {
     }
   }
 
-  // ────────────────────────────────────────────────────────
-  // REBALANCE GRID
-  // Called when price exits configured range
-  // Recalculates grid centered on current price
-  // ────────────────────────────────────────────────────────
   async _rebalanceGrid(currentPrice) {
     const rangeWidth = this.priceMax - this.priceMin
     const halfRange = rangeWidth / 2
@@ -302,7 +241,7 @@ export class GridBotEngine {
     this.levels = calcGridLevels(this.priceMin, this.priceMax, this.gridCount)
     this.lastCrossedLevel = null
 
-    console.log(`[GridBot] Rebalanced grid: $${this.priceMin.toFixed(4)} — $${this.priceMax.toFixed(4)}`)
+    console.log(`[GridBot] Rebalanced: $${this.priceMin.toFixed(4)} — $${this.priceMax.toFixed(4)}`)
 
     this.onRebalance({
       priceMin: this.priceMin,
@@ -312,9 +251,6 @@ export class GridBotEngine {
     })
   }
 
-  // ────────────────────────────────────────────────────────
-  // GETTERS
-  // ────────────────────────────────────────────────────────
   getStats() {
     return {
       pnl: this.pnl,

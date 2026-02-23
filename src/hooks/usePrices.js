@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { TOKENS } from '../lib/constants.js'
+import { get7KPrices } from '../lib/sevenK.js'
+import { getAftermathPrices } from '../lib/aftermath.js'
 
 // ============================================================
-// PRICE SOURCES — tried in order, first success wins
+// COINGECKO FALLBACK IDs
 // ============================================================
 const COINGECKO_IDS = {
   SUI:  'sui',
@@ -11,17 +13,6 @@ const COINGECKO_IDS = {
   IKA:  'ika',
 }
 
-// Fetch from 7K API
-async function fetchFrom7K(contracts) {
-  const params = contracts.map((c) => `coinTypes=${encodeURIComponent(c)}`).join('&')
-  const res = await fetch(`https://api.7k.ag/prices?${params}`, {
-    headers: { 'Accept': 'application/json' },
-  })
-  if (!res.ok) throw new Error(`7K API ${res.status}`)
-  return res.json()
-}
-
-// Fetch from CoinGecko (free, no key needed)
 async function fetchFromCoinGecko(symbols) {
   const ids = symbols.map((s) => COINGECKO_IDS[s]).filter(Boolean).join(',')
   const res = await fetch(
@@ -47,26 +38,45 @@ export function usePrices() {
   const fetchAll = async () => {
     const newPrices = {}
 
-    // ── Try 7K first ────────────────────────────────────────
+    // ── Try 7K SDK first (no CORS — uses SDK internals) ──────
     try {
       const contracts = Object.values(TOKENS).map((t) => t.contract)
-      const data = await fetchFrom7K(contracts)
+      const data = await get7KPrices(contracts)
 
       for (const [sym, token] of Object.entries(TOKENS)) {
-        const entry = data[token.contract]
-        if (entry?.price) newPrices[sym] = parseFloat(entry.price)
+        const price = data[token.contract]
+        if (price != null) newPrices[sym] = price
       }
 
       if (Object.keys(newPrices).length > 0) {
-        console.log('[Prices] Loaded from 7K:', newPrices)
+        console.log('[Prices] Loaded from 7K SDK:', newPrices)
         applyPrices(newPrices)
         return
       }
     } catch (err) {
-      console.warn('[Prices] 7K failed:', err.message)
+      console.warn('[Prices] 7K SDK failed:', err.message)
     }
 
-    // ── Fallback: CoinGecko ──────────────────────────────────
+    // ── Fallback: Aftermath Prices SDK ───────────────────────
+    try {
+      const contracts = Object.values(TOKENS).map((t) => t.contract)
+      const data = await getAftermathPrices(contracts)
+
+      for (const [sym, token] of Object.entries(TOKENS)) {
+        const price = data[token.contract]
+        if (price != null) newPrices[sym] = price
+      }
+
+      if (Object.keys(newPrices).length > 0) {
+        console.log('[Prices] Loaded from Aftermath:', newPrices)
+        applyPrices(newPrices)
+        return
+      }
+    } catch (err) {
+      console.warn('[Prices] Aftermath failed:', err.message)
+    }
+
+    // ── Final fallback: CoinGecko (public API) ───────────────
     try {
       const syms = Object.keys(TOKENS)
       const data = await fetchFromCoinGecko(syms)

@@ -8,8 +8,6 @@ let initPromise = null
 
 async function getAftermath() {
   if (afInstance) return afInstance
-
-  // Prevent multiple simultaneous inits
   if (initPromise) return initPromise
 
   initPromise = (async () => {
@@ -53,17 +51,43 @@ export async function buildAftermathTx({
 }
 
 // ============================================================
-// FETCH PRICE FROM AFTERMATH
+// GET PRICE FROM AFTERMATH — uses Prices SDK (correct API)
+// route.coinOut is an object: { type, amount, tradeFee }
+// To get implied price: coinOut.amount / coinIn.amount (adjusted for decimals)
 // ============================================================
-export async function getAftermathPrice(tokenContract) {
+export async function getAftermathPrice(tokenContract, tokenDecimals, usdcDecimals = 6) {
   try {
     const af = await getAftermath()
     const prices = af.Prices()
+
+    // getCoinPricesInUsd returns { [coinType]: priceInUsd }
     const result = await prices.getCoinPricesInUsd({ coins: [tokenContract] })
-    if (result?.[tokenContract]) return result[tokenContract]
+    if (result?.[tokenContract] != null) {
+      return parseFloat(result[tokenContract])
+    }
     return null
   } catch (err) {
     console.warn('[Aftermath] Price fetch failed:', err.message)
     return null
+  }
+}
+
+// ============================================================
+// GET MULTIPLE PRICES FROM AFTERMATH
+// ============================================================
+export async function getAftermathPrices(tokenContracts) {
+  try {
+    const af = await getAftermath()
+    const prices = af.Prices()
+    const result = await prices.getCoinPricesInUsd({ coins: tokenContracts })
+    // result is { [coinType]: number }
+    const out = {}
+    for (const [coinType, price] of Object.entries(result || {})) {
+      out[coinType] = price != null ? parseFloat(price) : null
+    }
+    return out
+  } catch (err) {
+    console.warn('[Aftermath] Multi-price fetch failed:', err.message)
+    return {}
   }
 }
