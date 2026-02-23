@@ -10,6 +10,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': '/src',
+      '@mysten/sui': '/node_modules/@mysten/sui/dist/cjs/index.js',
     },
   },
   optimizeDeps: {
