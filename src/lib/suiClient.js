@@ -24,75 +24,62 @@ async function withFallback(fn) {
 
 // ============================================================
 // CHECK NFT OWNERSHIP
-// Strategy 1: Package filter
-// Strategy 2: MoveModule filter (tries common module names)
-// Strategy 3: Full wallet scan matching package ID prefix
+// The Package filter on Sui only works for objects whose type
+// is directly under that package root. Many NFT collections
+// use nested modules (e.g. package::collection::NFT).
+// So we do a full wallet scan and match by package prefix —
+// this is the most reliable method.
 // ============================================================
 export async function checkNFTOwnership(walletAddress) {
-  console.log('[NFT] Checking wallet:', walletAddress)
-  console.log('[NFT] Package ID:', NFT_PACKAGE_ID)
+  console.log('[NFT] Scanning wallet:', walletAddress)
+  console.log('[NFT] Looking for package:', NFT_PACKAGE_ID)
 
   try {
-    // Strategy 1: Package filter
-    const byPkg = await withFallback((c) =>
-      c.getOwnedObjects({
-        owner: walletAddress,
-        filter: { Package: NFT_PACKAGE_ID },
-        options: { showType: true },
-        limit: 50,
-      })
-    )
-    console.log('[NFT] Package filter:', byPkg.data.length, 'result(s)')
-    if (byPkg.data.length > 0) {
-      return { count: byPkg.data.length, nfts: byPkg.data }
-    }
+    // Full wallet scan — paginate through ALL owned objects
+    let allObjects = []
+    let cursor = null
+    let hasNextPage = true
 
-    // Strategy 2: MoveModule filter
-    for (const mod of ['nft', 'pass', 'access', 'badge', 'grid', 'ultra', 'token', 'item', 'member']) {
-      try {
-        const res = await withFallback((c) =>
-          c.getOwnedObjects({
-            owner: walletAddress,
-            filter: { MoveModule: { package: NFT_PACKAGE_ID, module: mod } },
-            options: { showType: true },
-            limit: 50,
-          })
-        )
-        if (res.data.length > 0) {
-          console.log(`[NFT] MoveModule::${mod}:`, res.data.length, 'result(s)')
-          return { count: res.data.length, nfts: res.data }
-        }
-      } catch {}
-    }
-
-    // Strategy 3: Full wallet scan
-    console.log('[NFT] Starting full wallet scan...')
-    let all = [], cursor = null, hasNext = true
-    while (hasNext && all.length < 1000) {
+    while (hasNextPage) {
       const page = await withFallback((c) =>
         c.getOwnedObjects({
           owner: walletAddress,
           options: { showType: true },
-          cursor, limit: 50,
+          cursor,
+          limit: 50,
         })
       )
-      all = [...all, ...page.data]
-      hasNext = page.hasNextPage
+      allObjects = [...allObjects, ...page.data]
+      hasNextPage = page.hasNextPage
       cursor = page.nextCursor
+
+      // Safety cap at 2000 objects
+      if (allObjects.length >= 2000) break
     }
 
-    // Log ALL object types so we can debug from the console
-    console.log('[NFT] All object types in wallet:')
-    all.forEach((o) => {
-      if (o.data?.type) console.log(' -', o.data.type)
+    console.log('[NFT] Total objects in wallet:', allObjects.length)
+
+    // Log every object type so we can debug from the console
+    const types = allObjects
+      .map((o) => o.data?.type)
+      .filter(Boolean)
+
+    console.log('[NFT] All object types:')
+    types.forEach((t) => console.log('  -', t))
+
+    // Match anything whose type starts with our package ID
+    const nfts = allObjects.filter((o) => {
+      const type = o.data?.type || ''
+      return type.startsWith(NFT_PACKAGE_ID)
     })
 
-    const nfts = all.filter((o) => (o.data?.type || '').startsWith(NFT_PACKAGE_ID))
-    console.log(`[NFT] Full scan: ${all.length} total, ${nfts.length} match package`)
+    console.log(`[NFT] Found ${nfts.length} NFT(s) matching package`)
+    nfts.forEach((n) => console.log('  ✓', n.data?.type, n.data?.objectId))
+
     return { count: nfts.length, nfts }
 
   } catch (err) {
-    console.error('[NFT] Error:', err)
+    console.error('[NFT] Error during scan:', err)
     return { count: 0, nfts: [], error: err.message }
   }
 }
@@ -102,7 +89,9 @@ export async function checkNFTOwnership(walletAddress) {
 // ============================================================
 export async function getAllBalances(walletAddress) {
   try {
-    const balances = await withFallback((c) => c.getAllBalances({ owner: walletAddress }))
+    const balances = await withFallback((c) =>
+      c.getAllBalances({ owner: walletAddress })
+    )
     const result = {}
     for (const b of balances) {
       result[b.coinType] = BigInt(b.totalBalance)
@@ -116,7 +105,9 @@ export async function getAllBalances(walletAddress) {
 
 export async function getTokenBalance(walletAddress, coinType) {
   try {
-    const b = await withFallback((c) => c.getBalance({ owner: walletAddress, coinType }))
+    const b = await withFallback((c) =>
+      c.getBalance({ owner: walletAddress, coinType })
+    )
     return BigInt(b.totalBalance)
   } catch {
     return 0n
