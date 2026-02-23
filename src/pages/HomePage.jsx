@@ -22,7 +22,7 @@ export function HomePage({ setPage, nft }) {
           backgroundClip: 'text',
           marginBottom: 18,
         }}>
-          Automated Grid Trading<br />on Sui Network
+          Automated Grid Trading<br />on Deepbook
         </h1>
         <p style={{ fontSize: 17, color: '#5a6080', maxWidth: 520, margin: '0 auto 36px', lineHeight: 1.6 }}>
           Set your range, define your grids, and let the bot handle the rest.
