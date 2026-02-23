@@ -40,6 +40,14 @@ export async function get7KPrices(tokenContracts) {
 }
 
 // ============================================================
+// GET PRICE (single token) — mesmo proxy, conveniente para gridEngine
+// ============================================================
+export async function get7KPrice(tokenContract) {
+  const results = await get7KPrices([tokenContract])
+  return results[tokenContract] ?? null
+}
+
+// ============================================================
 // GET QUOTE
 // ============================================================
 export async function get7KQuote({ tokenInContract, tokenOutContract, amountIn }) {
